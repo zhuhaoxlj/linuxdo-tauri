@@ -26,7 +26,6 @@ const SCOPES: &str = "read,write";
 #[tauri::command]
 async fn start_oauth_flow(
     state: State<'_, AppState>,
-    app: tauri::AppHandle,
 ) -> Result<(), String> {
     // 生成 RSA 密钥对
     let mut rng = OsRng;
@@ -94,11 +93,15 @@ async fn handle_auth_callback(
         .decode(&payload)
         .map_err(|e| format!("Base64 解码失败: {}", e))?;
     
-    // 使用私钥解密
-    let private_key = state.private_key.lock().unwrap();
-    let private_key = private_key.as_ref()
-        .ok_or("私钥不存在")?;
+    // 克隆私钥以避免跨 await 持有锁
+    let private_key = {
+        let guard = state.private_key.lock().unwrap();
+        guard.as_ref()
+            .ok_or("私钥不存在")?
+            .clone()
+    };
     
+    // 使用私钥解密
     let decrypted = private_key
         .decrypt(Pkcs1v15Encrypt, &encrypted_bytes)
         .map_err(|e| format!("RSA 解密失败: {}", e))?;
@@ -141,14 +144,18 @@ async fn handle_auth_callback(
 
 #[tauri::command]
 async fn fetch_topics(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let api_key = state.api_key.lock().unwrap();
-    let api_key = api_key.as_ref()
-        .ok_or("未登录")?;
+    // 克隆 API key 以避免跨 await 持有锁
+    let api_key = {
+        let guard = state.api_key.lock().unwrap();
+        guard.as_ref()
+            .ok_or("未登录")?
+            .clone()
+    };
     
     let client = reqwest::Client::new();
     let response = client
         .get(format!("{}/latest.json", DISCOURSE_URL))
-        .header("User-Api-Key", api_key)
+        .header("User-Api-Key", &api_key)
         .send()
         .await
         .map_err(|e| format!("获取话题列表失败: {}", e))?;
