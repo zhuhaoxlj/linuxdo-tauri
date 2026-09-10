@@ -21,7 +21,7 @@ struct AuthResult {
 const DISCOURSE_URL: &str = "https://linux.do";
 const CLIENT_ID: &str = "linuxdo_tauri_client";
 const APP_NAME: &str = "LinuxDo Tauri";
-const SCOPES: &str = "read,write";
+const SCOPES: &str = "read,write,session_info";
 
 #[tauri::command]
 async fn start_oauth_flow(
@@ -58,7 +58,7 @@ async fn start_oauth_flow(
         urlencoding::encode(&nonce)
     );
     
-    println!("授权 URL: {}", auth_url);
+    eprintln!("授权 URL: {}", auth_url);
     
     // 在浏览器中打开授权页面
     tauri_plugin_opener::open_url(auth_url, None::<&str>)
@@ -72,7 +72,7 @@ async fn handle_auth_callback(
     url: String,
     state: State<'_, AppState>,
 ) -> Result<AuthResult, String> {
-    println!("处理认证回调: {}", url);
+    eprintln!("处理认证回调: {}", url);
     
     // 解析 URL 参数
     let url_parsed = url::Url::parse(&url)
@@ -109,7 +109,7 @@ async fn handle_auth_callback(
     let decrypted_str = String::from_utf8(decrypted)
         .map_err(|e| format!("解密结果不是有效的 UTF-8: {}", e))?;
     
-    println!("解密后的 payload: {}", decrypted_str);
+    eprintln!("解密后的 payload: {}", decrypted_str);
     
     // 解析 JSON
     let payload_json: serde_json::Value = serde_json::from_str(&decrypted_str)
