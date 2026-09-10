@@ -21,7 +21,7 @@ struct AuthResult {
 const DISCOURSE_URL: &str = "https://linux.do";
 const CLIENT_ID: &str = "linuxdo_tauri_client";
 const APP_NAME: &str = "LinuxDo Tauri";
-const SCOPES: &str = "read,write,session_info";
+const SCOPES: &str = "one_time_password";
 
 #[tauri::command]
 async fn start_oauth_flow(
