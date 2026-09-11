@@ -4,7 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -41,14 +40,46 @@ jobs:
       - name: Install JavaScript dependencies
         run: npm ci
 
-      - name: Build and publish Tauri bundle
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev
+
+      - name: Build Tauri bundle
+        run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+
+      - name: Upload platform bundle
+        uses: actions/upload-artifact@v4
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: LinuxDo ${{ github.ref_name }}
-          releaseBody: Automated desktop builds for ${{ github.ref_name }}.
-          releaseDraft: false
-          prerelease: false
-          args: --bundles ${{ matrix.bundles }}
+          name: linuxdo-${{ matrix.platform }}
+          path: src-tauri/target/release/bundle
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download platform bundles
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release and upload packages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "LinuxDo $TAG" \
+            --notes "Automated desktop builds for $TAG." \
+            2>/dev/null || true
+          find artifacts -type f -print0 | xargs -0 gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
