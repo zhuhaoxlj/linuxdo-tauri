@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { readLocal, writeLocal } from '../lib/storage';
 
 const Context = createContext(null);
-const defaults = { theme: 'system', accent: 'blue', fontSize: 16, compact: false, showAvatars: true, notifications: true };
+const defaults = { theme: 'system', accent: 'blue', font: 'default', fontSize: 16, compact: false, showAvatars: true, notifications: true };
 
 export function AppProvider({ children }) {
   const [settings, setSettings] = useState(() => ({ ...defaults, ...readLocal('settings', {}) }));
@@ -18,6 +18,7 @@ export function AppProvider({ children }) {
   useEffect(() => {
     document.documentElement.dataset.theme = settings.theme;
     document.documentElement.dataset.accent = settings.accent;
+    document.documentElement.dataset.font = settings.font || 'default';
     document.documentElement.style.setProperty('--reading-size', `${settings.fontSize}px`);
   }, [settings]);
   useEffect(() => {
