@@ -82,4 +82,5 @@ jobs:
             --title "LinuxDo $TAG" \
             --notes "Automated desktop builds for $TAG." \
             2>/dev/null || true
-          find artifacts -type f -print0 | xargs -0 gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
+          find artifacts -type f \( -name '*.deb' -o -name '*.dmg' -o -name '*.exe' \) -print0 \
+            | xargs -0 gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber
