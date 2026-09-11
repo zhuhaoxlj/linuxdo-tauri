@@ -14,7 +14,7 @@ export default function Cooked({ html = '', className = '' }) {
     const clean = DOMPurify.sanitize(html, {
     ADD_TAGS: ['video', 'audio', 'source'],
     ADD_ATTR: ['controls', 'poster', 'preload', 'playsinline', 'target'],
-    FORBID_TAGS: ['style', 'form', 'input', 'button'],
+      FORBID_TAGS: ['style', 'form', 'input', 'button'],
       FORBID_ATTR: ['style', 'srcset'],
     });
     const document = new DOMParser().parseFromString(clean, 'text/html');
@@ -25,6 +25,18 @@ export default function Cooked({ html = '', className = '' }) {
       }
       if (node.tagName === 'A') { node.setAttribute('target', '_blank'); node.setAttribute('rel', 'noopener noreferrer'); }
       if (node.tagName === 'IMG') { node.setAttribute('loading', 'lazy'); node.setAttribute('decoding', 'async'); }
+    }
+    // 拆掉 Discourse lightbox 包装：图片外提并记录原图地址（供查看器加载原图），
+    // 丢弃「文件名 尺寸 大小」meta 行与包装元素，避免包装布局产生的空白
+    for (const anchor of document.querySelectorAll('a.lightbox')) {
+      const image = anchor.querySelector('img');
+      const href = anchor.getAttribute('href');
+      if (image && href) image.setAttribute('data-original', href);
+      if (image) anchor.replaceWith(image);
+    }
+    for (const wrapper of document.querySelectorAll('.lightbox-wrapper')) {
+      const image = wrapper.querySelector('img');
+      if (image) wrapper.replaceWith(image); else wrapper.remove();
     }
     return document.body.innerHTML;
   }, [html]);
@@ -47,12 +59,31 @@ export default function Cooked({ html = '', className = '' }) {
     });
     return () => node.querySelectorAll('.code-copy').forEach(button => button.remove());
   }, [safe]);
+  // 图片加载失败时替换为可点占位，避免浏览器按原始宽高比留下大片空白框
+  useEffect(() => {
+    const node = root.current;
+    if (!node) return undefined;
+    const onError = event => {
+      const image = event.target;
+      if (image?.tagName !== 'IMG' || image.dataset.broken) return;
+      image.dataset.broken = 'true';
+      const link = document.createElement('a');
+      link.className = 'image-broken';
+      link.href = image.getAttribute('src') || image.src || '#';
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      link.textContent = '图片加载失败 · 点击查看原图';
+      image.replaceWith(link);
+    };
+    node.addEventListener('error', onError, true);
+    return () => node.removeEventListener('error', onError, true);
+  }, [safe]);
   const click = event => {
     const image = event.target.closest('img');
     if (image && event.target.closest('.cooked') === event.currentTarget) {
       event.preventDefault();
       const images = [...event.currentTarget.querySelectorAll('img')];
-      setViewer({ images: images.map(item => ({ src: item.currentSrc || item.src, alt: item.alt || '图片预览' })), index: images.indexOf(image) });
+      setViewer({ images: images.map(item => ({ src: item.dataset.original || item.currentSrc || item.src, alt: '图片预览' })), index: images.indexOf(image) });
       return;
     }
     const anchor = event.target.closest('a');
