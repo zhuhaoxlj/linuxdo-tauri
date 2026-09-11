@@ -3,18 +3,29 @@
   if (window.location.origin !== 'https://linux.do') return;
   const invoke = (...args) => window.__TAURI_INTERNALS__.invoke(...args);
   const headers = { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+  const REQUEST_TIMEOUT_MS = 15000;
 
   class ChallengeRequired extends Error {}
 
   async function request(path, options = {}) {
-    const response = await fetch(path, {
-      credentials: 'include',
-      cache: 'no-store',
-      ...options,
-      headers: { ...headers, ...options.headers },
-    });
-    if (response.headers.get('cf-mitigated') === 'challenge') throw new ChallengeRequired();
-    return response;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(path, {
+        credentials: 'include',
+        cache: 'no-store',
+        ...options,
+        signal: options.signal || controller.signal,
+        headers: { ...headers, ...options.headers },
+      });
+      if (response.headers.get('cf-mitigated') === 'challenge') throw new ChallengeRequired();
+      return response;
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('网站请求超时，请检查网络后重试');
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function readJson(response, description) {

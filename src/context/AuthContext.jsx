@@ -15,7 +15,11 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     let disposed = false;
     localStorage.removeItem('discourse_api_key');
-    invoke('restore_session')
+    const restore = Promise.race([
+      invoke('restore_session'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('登录状态检查超时，请重试')), 35000)),
+    ]);
+    restore
       .then(value => { if (!disposed) setUser(value); })
       .catch(reason => { if (!disposed) setError(errorText(reason)); })
       .finally(() => { if (!disposed) setChecking(false); });

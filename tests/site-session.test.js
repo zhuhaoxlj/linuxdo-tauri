@@ -8,7 +8,7 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { 'content-type': 'application/json' },
 });
 
-function bridge(fetch) {
+function bridge(fetch, runtime = {}) {
   const messages = [];
   const window = {
     location: { origin: 'https://linux.do' },
@@ -18,6 +18,7 @@ function bridge(fetch) {
     window, fetch, TypeError,
     document: { readyState: 'complete', querySelector: () => null },
     FormData, Blob, Uint8Array, atob, URL, URLSearchParams, Headers, AbortController, setTimeout, clearTimeout,
+    ...runtime,
   });
   return {
     messages,
@@ -82,6 +83,29 @@ test('expired sessions return logged-out state; network failures are not mistake
   const reply = await bridge(async () => { throw new TypeError('network'); }).run({ action: 'current_user' });
   assert.equal(reply.kind, 'error');
   assert.match(reply.message, /网络/);
+});
+
+test('hung forum requests are aborted and reported instead of staying pending', async () => {
+  let triggerTimeout;
+  const client = bridge((path, options) => {
+    assert.equal(path, '/session/current.json');
+    return new Promise((_, reject) => {
+      options.signal.addEventListener('abort', () => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        reject(error);
+      });
+    });
+  }, {
+    setTimeout: callback => { triggerTimeout = callback; return 1; },
+    clearTimeout: () => {},
+  });
+  const result = client.run({ action: 'current_user' });
+  await Promise.resolve();
+  triggerTimeout();
+  const reply = await result;
+  assert.equal(reply.kind, 'error');
+  assert.equal(reply.message, '网站请求超时，请检查网络后重试');
 });
 
 test('loads topics with browser cookies and surfaces HTTP errors', async () => {

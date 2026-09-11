@@ -77,7 +77,8 @@ impl SiteSession {
                 self.cancel(&error);
             }
         }
-        let result = tokio::time::timeout(Duration::from_secs(180), receiver).await;
+        // A broken or blocked WebView must not leave the frontend in its loading state forever.
+        let result = tokio::time::timeout(Duration::from_secs(30), receiver).await;
         let empty = {
             let mut pending = self.pending.lock().unwrap();
             pending.remove(&id);
