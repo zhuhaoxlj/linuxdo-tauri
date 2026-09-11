@@ -255,6 +255,11 @@ kbd { font-family: inherit; font-size: 0.625rem; border: 1px solid var(--line); 
 .jump-input { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
 .jump-input input { width: 100%; padding: 6px 10px; font-size: 0.75rem; border: 0; background: transparent; }
 .reading-jumps { display: flex; gap: 24px; font-size: 0.6875rem; color: var(--accent); margin-top: 11px; }
+.topic-quick-actions { display: flex; flex-direction: column; gap: 5px; margin-top: 31px; padding-top: 18px; border-top: 1px solid var(--line); }
+.topic-quick-actions > .eyebrow { margin-bottom: 4px; }
+.quick-action { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 0.6875rem; text-align: left; cursor: pointer; }
+.quick-action:hover, .quick-action.selected { color: var(--accent); }
+.quick-action:disabled { opacity: .45; cursor: not-allowed; }
 .topic-notifications { margin-top: 30px; display: flex; align-items: center; color: var(--muted); gap: 3px; }
 .topic-notifications select { font-size: 0.625rem; padding: 6px 0; width: 100%; background: transparent; border: 0; }
 .cooked { font-size: var(--reading-size); line-height: 1.85; overflow-wrap: anywhere; color: var(--text); }
