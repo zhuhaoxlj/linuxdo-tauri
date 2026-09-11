@@ -4,17 +4,23 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test": "node --test tests/*.test.js",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.102.8",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-deep-link": "^2",
-    "@tauri-apps/plugin-shell": "^2",
+    "@tauri-apps/plugin-opener": "^2.5.5",
+    "dompurify": "^3.4.15",
+    "highlight.js": "^11.12.0",
+    "lucide-react": "^1.44.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

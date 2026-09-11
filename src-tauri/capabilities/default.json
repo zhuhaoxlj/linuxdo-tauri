@@ -5,6 +5,14 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "deep-link:default",
+    "opener:default",
+    "allow-start-oauth-flow",
+    "allow-cancel-login",
+    "allow-handle-auth-callback",
+    "allow-restore-session",
+    "allow-logout",
+    "allow-discourse-request",
+    "allow-upload-file"
   ]
 }

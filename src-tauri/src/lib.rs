@@ -1,184 +1,215 @@
-use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-use tauri::State;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rsa::{RsaPrivateKey, RsaPublicKey, pkcs1::EncodeRsaPublicKey, Pkcs1v15Encrypt};
-use rand::rngs::OsRng;
+mod api;
+mod auth;
+mod site_session;
+
+use auth::PendingLogin;
+use serde_json::Value;
+use site_session::{SessionTask, SiteReply, SiteSession};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+};
+use tauri::{Manager, State};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 #[derive(Default)]
 struct AppState {
-    private_key: Mutex<Option<RsaPrivateKey>>,
-    nonce: Mutex<Option<String>>,
-    api_key: Mutex<Option<String>>,
+    pending_login: Mutex<Option<PendingLogin>>,
+    authenticated: AtomicBool,
 }
-
-#[derive(Serialize, Deserialize)]
-struct AuthResult {
-    api_key: String,
-    user: serde_json::Value,
-}
-
-const DISCOURSE_URL: &str = "https://linux.do";
-const CLIENT_ID: &str = "linuxdo_tauri_client";
-const APP_NAME: &str = "LinuxDo Tauri";
-const SCOPES: &str = "one_time_password";
 
 #[tauri::command]
-async fn start_oauth_flow(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    // 生成 RSA 密钥对
-    let mut rng = OsRng;
-    let bits = 2048;
-    let private_key = RsaPrivateKey::new(&mut rng, bits)
-        .map_err(|e| format!("生成 RSA 密钥失败: {}", e))?;
-    
-    let public_key = RsaPublicKey::from(&private_key);
-    
-    // 将公钥编码为 PEM 格式
-    let public_key_pem = public_key
-        .to_pkcs1_pem(rsa::pkcs1::LineEnding::LF)
-        .map_err(|e| format!("编码公钥失败: {}", e))?;
-    
-    // 生成 nonce
-    let nonce = uuid::Uuid::new_v4().to_string();
-    
-    // 保存私钥和 nonce
-    *state.private_key.lock().unwrap() = Some(private_key);
-    *state.nonce.lock().unwrap() = Some(nonce.clone());
-    
-    // 构建授权 URL
-    let auth_url = format!(
-        "{}/user-api-key/new?application_name={}&client_id={}&scopes={}&public_key={}&nonce={}&auth_redirect=discourse://auth_redirect",
-        DISCOURSE_URL,
-        urlencoding::encode(APP_NAME),
-        urlencoding::encode(CLIENT_ID),
-        urlencoding::encode(SCOPES),
-        urlencoding::encode(&public_key_pem),
-        urlencoding::encode(&nonce)
-    );
-    
-    eprintln!("授权 URL: {}", auth_url);
-    
-    // 在浏览器中打开授权页面
-    tauri_plugin_opener::open_url(auth_url, None::<&str>)
-        .map_err(|e| format!("打开浏览器失败: {}", e))?;
-    
+async fn start_oauth_flow(app: tauri::AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    app.deep_link()
+        .register_all()
+        .map_err(|_| "无法注册浏览器回调，请检查应用安装")?;
+    let login = tauri::async_runtime::spawn_blocking(PendingLogin::new)
+        .await
+        .map_err(|_| "生成登录密钥失败，请重试")??;
+    let url = login.authorization_url()?;
+    *state.pending_login.lock().unwrap() = Some(login);
+    if tauri_plugin_opener::open_url(url.as_str(), None::<&str>).is_err() {
+        state.pending_login.lock().unwrap().take();
+        return Err("打开浏览器失败，请检查默认浏览器设置".into());
+    }
     Ok(())
+}
+
+#[tauri::command]
+fn cancel_login(state: State<'_, AppState>) {
+    state.pending_login.lock().unwrap().take();
 }
 
 #[tauri::command]
 async fn handle_auth_callback(
     url: String,
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
-) -> Result<AuthResult, String> {
-    eprintln!("处理认证回调: {}", url);
-    
-    // 解析 URL 参数
-    let url_parsed = url::Url::parse(&url)
-        .map_err(|e| format!("解析 URL 失败: {}", e))?;
-    
-    let mut payload = None;
-    for (key, value) in url_parsed.query_pairs() {
-        if key == "payload" {
-            payload = Some(value.to_string());
-            break;
-        }
-    }
-    
-    let payload = payload.ok_or("URL 中没有 payload 参数")?;
-    
-    // Base64 解码
-    let encrypted_bytes = BASE64
-        .decode(&payload)
-        .map_err(|e| format!("Base64 解码失败: {}", e))?;
-    
-    // 克隆私钥以避免跨 await 持有锁
-    let private_key = {
-        let guard = state.private_key.lock().unwrap();
-        guard.as_ref()
-            .ok_or("私钥不存在")?
-            .clone()
+    session: State<'_, SiteSession>,
+) -> Result<Value, String> {
+    let credentials = {
+        let mut pending = state.pending_login.lock().unwrap();
+        let credentials = pending
+            .as_ref()
+            .ok_or("登录请求已失效，请重新点击浏览器登录")?
+            .decode_callback(&url)?;
+        pending.take();
+        credentials
     };
-    
-    // 使用私钥解密
-    let decrypted = private_key
-        .decrypt(Pkcs1v15Encrypt, &encrypted_bytes)
-        .map_err(|e| format!("RSA 解密失败: {}", e))?;
-    
-    let decrypted_str = String::from_utf8(decrypted)
-        .map_err(|e| format!("解密结果不是有效的 UTF-8: {}", e))?;
-    
-    eprintln!("解密后的 payload: {}", decrypted_str);
-    
-    // 解析 JSON
-    let payload_json: serde_json::Value = serde_json::from_str(&decrypted_str)
-        .map_err(|e| format!("解析 JSON 失败: {}", e))?;
-    
-    let api_key = payload_json["key"]
-        .as_str()
-        .ok_or("payload 中没有 key 字段")?
-        .to_string();
-    
-    // 保存 API key
-    *state.api_key.lock().unwrap() = Some(api_key.clone());
-    
-    // 获取用户信息
-    let client = reqwest::Client::new();
-    let response = client
-        .get(format!("{}/session/current.json", DISCOURSE_URL))
-        .header("User-Api-Key", &api_key)
-        .send()
-        .await
-        .map_err(|e| format!("获取用户信息失败: {}", e))?;
-    
-    let user_data: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| format!("解析用户信息失败: {}", e))?;
-    
-    let user = user_data["current_user"].clone();
-    
-    Ok(AuthResult { api_key, user })
+    let user = session
+        .request(
+            &app,
+            SessionTask::Login {
+                otp: credentials.otp,
+                api_key: credentials.api_key,
+            },
+        )
+        .await?;
+    if user["username"].as_str().is_none_or(str::is_empty) {
+        return Err("登录会话未建立，请重新授权".into());
+    }
+    state.authenticated.store(true, Ordering::SeqCst);
+    Ok(user)
 }
 
 #[tauri::command]
-async fn fetch_topics(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    // 克隆 API key 以避免跨 await 持有锁
-    let api_key = {
-        let guard = state.api_key.lock().unwrap();
-        guard.as_ref()
-            .ok_or("未登录")?
-            .clone()
-    };
-    
-    let client = reqwest::Client::new();
-    let response = client
-        .get(format!("{}/latest.json", DISCOURSE_URL))
-        .header("User-Api-Key", &api_key)
-        .send()
+async fn restore_session(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session: State<'_, SiteSession>,
+) -> Result<Option<Value>, String> {
+    if !SiteSession::has_session(&app)? {
+        return Ok(None);
+    }
+    let user = session.request(&app, SessionTask::CurrentUser).await?;
+    if user["username"]
+        .as_str()
+        .is_some_and(|name| !name.is_empty())
+    {
+        state.authenticated.store(true, Ordering::SeqCst);
+        Ok(Some(user))
+    } else {
+        SiteSession::clear_session(&app)?;
+        state.authenticated.store(false, Ordering::SeqCst);
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+async fn logout(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session: State<'_, SiteSession>,
+) -> Result<(), String> {
+    session.cancel("已退出登录");
+    SiteSession::clear_session(&app)?;
+    state.authenticated.store(false, Ordering::SeqCst);
+    state.pending_login.lock().unwrap().take();
+    Ok(())
+}
+
+#[tauri::command]
+async fn discourse_request(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session: State<'_, SiteSession>,
+    path: String,
+    method: String,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    api::validate_request(&path, &method)?;
+    if method != "GET" && !state.authenticated.load(Ordering::SeqCst) {
+        return Err("请先登录后再操作".into());
+    }
+    session
+        .request(&app, SessionTask::Api { path, method, body })
         .await
-        .map_err(|e| format!("获取话题列表失败: {}", e))?;
-    
-    let topics: serde_json::Value = response
-        .json()
+}
+
+#[tauri::command]
+fn site_ready(
+    window: tauri::WebviewWindow,
+    session: State<'_, SiteSession>,
+    challenge: bool,
+) -> Result<(), String> {
+    session.page_ready(&window, challenge)
+}
+
+#[tauri::command]
+async fn upload_file(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    session: State<'_, SiteSession>,
+    file_name: String,
+    content_type: String,
+    data: String,
+) -> Result<Value, String> {
+    if !state.authenticated.load(Ordering::SeqCst) {
+        return Err("请先登录后上传附件".into());
+    }
+    if data.len() > 40 * 1024 * 1024 {
+        return Err("单个附件不能超过 30 MB".into());
+    }
+    if file_name.is_empty() || file_name.contains(['/', '\\']) || content_type.len() > 128 {
+        return Err("附件信息无效".into());
+    }
+    session
+        .request(
+            &app,
+            SessionTask::Upload {
+                file_name,
+                content_type,
+                data,
+            },
+        )
         .await
-        .map_err(|e| format!("解析话题列表失败: {}", e))?;
-    
-    Ok(topics)
+}
+
+#[tauri::command]
+fn site_response(
+    window: tauri::WebviewWindow,
+    session: State<'_, SiteSession>,
+    id: String,
+    reply: SiteReply,
+) -> Result<(), String> {
+    session.receive(&window, &id, reply)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Must be first: the callback instance forwards its URL to the process holding the RSA key.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+        }
+    }));
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_shell::init())
         .manage(AppState::default())
+        .manage(SiteSession::default())
+        .on_window_event(|window, event| {
+            if window.label() == "main"
+                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
+            {
+                window.app_handle().exit(0);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             start_oauth_flow,
+            cancel_login,
             handle_auth_callback,
-            fetch_topics
+            restore_session,
+            logout,
+            discourse_request,
+            upload_file,
+            site_ready,
+            site_response,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

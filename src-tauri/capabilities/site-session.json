@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "site-session",
+  "description": "The forum WebView can only report readiness and results of session requests",
+  "windows": ["site-session"],
+  "local": false,
+  "remote": { "urls": ["https://linux.do/*"] },
+  "permissions": ["allow-site-ready", "allow-site-response"]
+}

@@ -1,111 +1,98 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { getCurrent, onOpenUrl } from '@tauri-apps/plugin-deep-link';
+import { ArrowRight, ExternalLink, LoaderCircle } from 'lucide-react';
 
-function Login({ onLoginSuccess }) {
-  const [loading, setLoading] = useState(false);
+export default function Login({ onLoginSuccess, onBrowse, sessionError }) {
+  const [ready, setReady] = useState(false);
+  const [phase, setPhase] = useState('idle');
   const [error, setError] = useState('');
-  const [testUrl, setTestUrl] = useState('');
+  const handledUrls = useRef(new Set());
 
   useEffect(() => {
-    // 监听深链接回调
-    const unlisten = onOpenUrl((urls) => {
-      console.log('收到深链接:', urls);
-      urls.forEach(url => {
-        if (url.startsWith('discourse://auth_redirect')) {
-          handleAuthCallback(url);
+    let disposed = false;
+    let unlisten;
+
+    const receive = async (urls) => {
+      for (const url of urls ?? []) {
+        let parsed;
+        try { parsed = new URL(url); } catch { continue; }
+        if (parsed.protocol !== 'discourse:' || parsed.hostname !== 'auth_redirect') continue;
+        if (disposed || handledUrls.current.has(url)) continue;
+        handledUrls.current.add(url);
+        setPhase('completing');
+        setError('');
+        try {
+          const user = await invoke('handle_auth_callback', { url });
+          if (!disposed) onLoginSuccess(user);
+        } catch (err) {
+          if (!disposed) {
+            setError(String(err));
+            setPhase('idle');
+          }
         }
-      });
-    });
-
-    return () => {
-      unlisten.then(fn => fn());
+      }
     };
-  }, []);
 
-  const handleAuthCallback = async (url) => {
-    setLoading(true);
-    setError('');
-    
-    try {
-      const result = await invoke('handle_auth_callback', { url });
-      console.log('认证成功:', result);
-      onLoginSuccess(result.api_key, result.user);
-    } catch (err) {
-      console.error('认证回调处理失败:', err);
-      setError('登录失败: ' + err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    const setup = async () => {
+      try {
+        // Subscribe first so callbacks arriving while getCurrent resolves cannot be lost.
+        unlisten = await onOpenUrl(receive);
+        if (disposed) { unlisten(); return; }
+        const urls = await getCurrent();
+        if (!disposed) {
+          setReady(true);
+          receive(urls);
+        }
+      } catch (err) {
+        if (!disposed) setError(`无法接收浏览器登录回调：${err}`);
+      }
+    };
+    setup();
+    return () => { disposed = true; unlisten?.(); };
+  }, [onLoginSuccess]);
 
   const handleLogin = async () => {
-    setLoading(true);
+    setPhase('opening');
     setError('');
-
     try {
       await invoke('start_oauth_flow');
-      setError('请在浏览器中授权,然后将回调 URL 粘贴到下面的输入框');
+      setPhase(current => current === 'opening' ? 'waiting' : current);
     } catch (err) {
-      console.error('启动 OAuth 流程失败:', err);
-      setError('启动登录失败: ' + err);
-      setLoading(false);
+      setError(String(err));
+      setPhase('idle');
     }
   };
 
-  const handleTestCallback = () => {
-    if (testUrl.startsWith('discourse://auth_redirect')) {
-      handleAuthCallback(testUrl);
-    } else {
-      setError('URL 格式错误,应该以 discourse://auth_redirect 开头');
-    }
+  const cancel = async () => {
+    try {
+      await invoke('cancel_login');
+      setPhase('idle');
+    } catch (err) { setError(String(err)); }
+  };
+
+  const labels = {
+    idle: '浏览器登录', opening: '正在打开浏览器…',
+    waiting: '等待浏览器授权…', completing: '正在完成登录…',
   };
 
   return (
-    <div className="flex items-center justify-center w-full h-full">
-      <div className="bg-white rounded-lg shadow-lg p-8 w-96">
-        <h1 className="text-2xl font-bold text-center mb-6">LinuxDo</h1>
-        
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={handleLogin}
-          disabled={loading}
-          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded disabled:bg-gray-400 disabled:cursor-not-allowed mb-4"
-        >
-          {loading ? '登录中...' : '浏览器登录'}
+    <div className="login-screen">
+      <div className="login-art"><div className="login-brand"><img src="/fluxdo.png" alt="" /><strong>FluxDO</strong></div><div className="login-intro"><span className="eyebrow">HELLO, CURIOUS MIND.</span><h1>好奇心，<br />在这里相遇。</h1><p>从一个问题，到一个新发现。<br />与 Linux.do 社区一起，让有价值的对话继续。</p><div className="login-values"><span>真诚</span><span>友善</span><span>团结</span><span>专业</span></div></div><div className="login-orbit" aria-hidden="true"><i /><i /><span>F</span></div><small className="login-footnote">为社区而生 · FluxDO</small></div>
+      <div className="login-panel"><div className="login-card"><img src="/fluxdo.png" className="login-mark" alt="" /><h2>欢迎回来</h2><p className="login-description">登录，继续你的社区之旅。</p>
+        {(error || sessionError) && <div role="alert" className="inline-error login-error">{error || sessionError}</div>}
+        <button onClick={handleLogin} disabled={!ready || phase !== 'idle'}
+          className="button primary login-button">
+          {phase !== 'idle' ? <LoaderCircle className="spin" size={18} /> : <ExternalLink size={18} />}
+          {labels[phase]}
         </button>
-
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <p className="text-sm text-gray-600 mb-2">
-            由于系统已安装 Flatpak 版本,回调会被拦截。请手动粘贴回调 URL:
-          </p>
-          <input
-            type="text"
-            value={testUrl}
-            onChange={(e) => setTestUrl(e.target.value)}
-            placeholder="discourse://auth_redirect?payload=..."
-            className="w-full px-3 py-2 border border-gray-300 rounded mb-2 text-sm"
-          />
-          <button
-            onClick={handleTestCallback}
-            disabled={!testUrl}
-            className="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded disabled:bg-gray-400 disabled:cursor-not-allowed text-sm"
-          >
-            手动处理回调
-          </button>
-        </div>
-
-        <p className="text-xs text-gray-500 mt-4 text-center">
-          提示:在浏览器授权后,复制地址栏的 discourse:// 开头的 URL 并粘贴到上方输入框
+        <p role="status" className="login-status">
+          {phase === 'completing' ? '正在确认登录状态，请稍候。' : '在浏览器完成授权后，会自动返回应用。'}
         </p>
-      </div>
+        {phase === 'waiting' && <button onClick={cancel} className="button text login-cancel">取消登录</button>}
+        {onBrowse && phase === 'idle' && <button className="button text browse-button" onClick={onBrowse}>先逛逛社区 <ArrowRight size={16} /></button>}
+        <p className="login-privacy">授权由 Linux.do 处理，应用不会读取你的密码。</p>
+      </div></div>
     </div>
   );
 }
-
-export default Login;
