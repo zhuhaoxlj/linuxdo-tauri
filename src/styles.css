@@ -260,6 +260,13 @@ kbd { font-family: inherit; font-size: 0.625rem; border: 1px solid var(--line); 
 .quick-action { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 0.6875rem; text-align: left; cursor: pointer; }
 .quick-action:hover, .quick-action.selected { color: var(--accent); }
 .quick-action:disabled { opacity: .45; cursor: not-allowed; }
+.topic-toc { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); }
+.topic-toc-list { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow-y: auto; }
+.topic-toc-list button { border: 0; border-left: 2px solid transparent; padding-top: 5px; padding-bottom: 5px; padding-right: 2px; background: transparent; color: var(--muted); font: inherit; font-size: 0.625rem; line-height: 1.45; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.topic-toc-list button:hover, .topic-toc-list button.active { border-left-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.image-viewer { display: flex; flex-direction: column; gap: 15px; padding: 0 22px 22px; }
+.image-viewer > img { display: block; width: 100%; max-height: 68vh; object-fit: contain; border-radius: 8px; background: var(--surface-soft); }
+.image-viewer-actions { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--muted); font-size: 0.75rem; }
 .topic-notifications { margin-top: 30px; display: flex; align-items: center; color: var(--muted); gap: 3px; }
 .topic-notifications select { font-size: 0.625rem; padding: 6px 0; width: 100%; background: transparent; border: 0; }
 .cooked { font-size: var(--reading-size); line-height: 1.85; overflow-wrap: anywhere; color: var(--text); }
@@ -278,6 +285,8 @@ kbd { font-family: inherit; font-size: 0.625rem; border: 1px solid var(--line); 
 .cooked ul { list-style: disc; }.cooked ol { list-style: decimal; }
 .cooked li { margin: .25em 0; }
 .cooked pre { position: relative; max-width: 100%; overflow: auto; padding: 17px; margin: 1.1em 0; background: var(--surface-soft); border: 1px solid var(--line); border-radius: 9px; font-size: 0.75rem; line-height: 1.75; white-space: pre; }
+.cooked pre .code-copy { position: absolute; top: 8px; right: 8px; padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--muted); font-size: 0.625rem; cursor: pointer; }
+.cooked pre .code-copy:hover { color: var(--accent); border-color: var(--accent); }
 .cooked code { font-family: "JetBrains Mono", "Fira Code", monospace; font-size: .85em; padding: 2px 5px; background: var(--surface-soft); border-radius: 4px; }
 .cooked pre code { padding: 0; font-size: inherit; background: transparent; }
 .cooked table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: .9em; margin: 1.1em 0; }
