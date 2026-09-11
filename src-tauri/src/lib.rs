@@ -191,6 +191,16 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
+        .setup(|app| {
+            #[cfg(desktop)]
+            {
+                let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))?;
+                if let Some(window) = app.get_webview_window("main") {
+                    window.set_icon(icon)?;
+                }
+            }
+            Ok(())
+        })
         .manage(AppState::default())
         .manage(SiteSession::default())
         .on_window_event(|window, event| {
