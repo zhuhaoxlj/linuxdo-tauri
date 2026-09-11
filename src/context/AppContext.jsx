@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { readLocal, writeLocal } from '../lib/storage';
 
 const Context = createContext(null);
-const defaults = { theme: 'system', accent: 'blue', font: 'default', uiFontSize: 14, fontSize: 16, compact: false, showAvatars: true, notifications: true };
+const defaults = { theme: 'system', accent: 'blue', font: 'default', uiFontSize: 14, fontSize: 16, compact: false, showAvatars: true, notifications: true, nestedView: false, nestedLineStyle: 'auto' };
 
 export function AppProvider({ children }) {
   const [settings, setSettings] = useState(() => ({ ...defaults, ...readLocal('settings', {}) }));

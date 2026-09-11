@@ -19,7 +19,8 @@
 | 搜索、通知、书签、历史、草稿 | 迁移中 | `_search.dart`、`_notifications.dart`、`_drafts.dart` |
 | 用户资料、关注、徽章、私信 | 待接入 | `_users.dart` |
 | 聊天、实时 MessageBus、投票与管理操作 | 待接入 | `_chat.dart`、`message_bus_service.dart`、`_voting.dart` |
-| 外观、阅读与快捷键设置 | 待接入 | `appearance_page.dart`、`reading_settings_page.dart` |
+| 外观、阅读与快捷键设置 | 树形视图设置已接入 | `appearance_page.dart`、`reading_settings_page.dart`、`reading_defs.dart` |
+| 树状回复视图（nested topic） | 已实现，待桌面真实验证 | `nested_topic.dart`、`nested_topic_provider.dart`、`_nested.dart`、`nested_post_card.dart`、`nested_post_list.dart` |
 | AI、Notion、LDC/CDK、下载导出、DOH/ECH | 待迁移 | 对应 services/modules、`core/doh_proxy` |
 | Android/iOS 专用适配 | 当前 Linux 范围之外 | 相机、移动后台服务、APK 更新等 |
 
@@ -33,9 +34,18 @@
 
 ### 当前基线（2026-09-11）
 
-已具备：话题列表与详情、楼层跳转、阅读进度、帖子点赞/收藏/回复、话题快捷操作、搜索、通知、书签、阅读历史、草稿、私信、聊天、用户资料、关注和徽章。
+已具备：话题列表与详情、楼层跳转、阅读进度、帖子点赞/收藏/回复、话题快捷操作、搜索、通知、书签、阅读历史、草稿、私信、聊天、用户资料、关注和徽章、树状回复视图。
 
-尚未形成完整能力：话题目录、话题筛选、图片查看器、代码块增强、可配置的楼层快捷键、独立的稍后阅读、话题导出、离线缓存、实时 MessageBus。
+尚未形成完整能力：话题筛选、可配置的楼层快捷键、独立的稍后阅读、话题导出、离线缓存、实时 MessageBus。
+
+### 树状回复视图（2026-09-11 迁移）
+
+- FluxDO 参考：`lib/models/nested_topic.dart`、`lib/providers/nested_topic_provider.dart`、`lib/services/discourse/_nested.dart`、`lib/widgets/nested/`、`lib/pages/topic_detail_page/widgets/nested_post_list.dart`、`lib/settings/definitions/reading_defs.dart`
+- Tauri 落点：`src/lib/nestedPosts.js`（树节点解析与纯函数）、`src/lib/useNestedTopic.js`（根列表分页 + context 定位 + 子回复懒加载）、`src/components/NestedPost.jsx`（递归树卡片：L 形/直线连接线、折叠条、加载更多回复、深层子树弹框）、`src/components/NestedPostList.jsx`（排序 chips、context 横幅、展开状态）、`src/components/NestedThreadDialog.jsx`、`src/pages/TopicPage.jsx`（视图切换、带楼层进入走 context 定位、API 失败回落平铺）、`src/pages/SettingsPage.jsx`（默认使用树形视图、连接线样式）、`src/styles.css`
+- 数据来自 linux.do 服务端 Discourse nested-topic 插件端点 `/n/topic/*.json`，与 FluxDO 相同；私信话题强制平铺。
+- 进入话题时树接口与话题接口并行请求；nested 返回前用话题已带的平铺帖子在前端建临时树先渲染（`buildProvisionalTree`，回复 1 楼即根回复、缺失父楼层的回复临时作顶层），返回后无缝替换且折叠状态保留，默认开启时无整页等待。
+- 树卡片保留 `data-post-number` 与 `post-*` 锚点，阅读进度上报、话题目录和跳层在树状模式下继续工作；展开状态以楼层号保存在列表层。
+- 验证：`npm test`（含 `tests/nested-posts.test.js` 7 项树数据解析用例）、`npm run build` 通过；桌面真实账号验证待做。
 
 ### 阶段一：阅读体验（优先）
 
@@ -49,6 +59,7 @@
   - FluxDO 参考：`lib/pages/image_viewer_page.dart`、`lib/utils/share_utils.dart`
   - Tauri 落点：扩展 `src/components/Cooked.jsx`，新增图片查看器组件和保存原图命令。
   - 目标：点击图片放大、左右切换、ESC 关闭、复制/保存原图、加载失败提示。
+  - 2026-09-12 补充：内容清洗阶段直接拆掉 Discourse lightbox 包装——图片外提、原图地址记入 `data-original` 供查看器加载原图，丢弃「文件名 尺寸 大小」meta 行与包装元素（消除包装布局空白）；cooked 图片同时约束 `max-height: 75vh`（竖长图不占数屏），加载失败的图片替换为「点击查看原图」占位条。
   - 验收：同一帖子多张图片可连续浏览；外部图片和相对图片均可打开；关闭后保持原滚动位置。
 
 - [ ] **代码块增强**（代码已接入，待桌面真实验证）
@@ -61,7 +72,7 @@
 
 - [ ] **话题筛选模式**
   - FluxDO 参考：[`_filter_actions.dart`](https://github.com/Lingyan000/fluxdo/blob/e1bd839ef87825347c062fb588751a1a62e02372/lib/pages/topic_detail_page/actions/_filter_actions.dart)
-  - 建议顺序：热门回复、只看楼主、只看顶层回复、按活跃度排序，最后再做树状回复。
+  - 建议顺序：热门回复、只看楼主、只看顶层回复、按活跃度排序；树状回复已于 2026-09-11 单独迁移完成。
   - Tauri 落点：`src/pages/TopicPage.jsx`、`src/lib/api.js`、帖子合并逻辑。
   - 验收：筛选状态可取消；刷新或加载更多不会丢失筛选；筛选后的阅读进度仍使用真实楼层号。
 
