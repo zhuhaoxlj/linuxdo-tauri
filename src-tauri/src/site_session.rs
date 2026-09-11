@@ -57,8 +57,14 @@ pub struct SiteSession {
 
 impl SiteSession {
     pub async fn request(&self, app: &AppHandle, task: SessionTask) -> Result<Value, String> {
+        // 登录可能需要用户在验证窗口手动完成人机验证并等待页面重载，预算放宽；
+        // 其余请求保持短预算，避免坏掉或被墙的 WebView 把前端挂在加载态。
+        let budget = match task {
+            SessionTask::Login { .. } => Duration::from_secs(150),
+            _ => Duration::from_secs(30),
+        };
         let id = uuid::Uuid::new_v4().to_string();
-        let payload = serde_json::json!({ "id": id, "task": task });
+        let payload = serde_json::json!({ "id": id, "task": &task });
         let (sender, receiver) = oneshot::channel();
         self.pending.lock().unwrap().insert(
             id.clone(),
@@ -78,7 +84,7 @@ impl SiteSession {
             }
         }
         // A broken or blocked WebView must not leave the frontend in its loading state forever.
-        let result = tokio::time::timeout(Duration::from_secs(30), receiver).await;
+        let result = tokio::time::timeout(budget, receiver).await;
         let empty = {
             let mut pending = self.pending.lock().unwrap();
             pending.remove(&id);

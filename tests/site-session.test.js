@@ -10,15 +10,17 @@ const json = (data, status = 200) => new Response(JSON.stringify(data), {
 
 function bridge(fetch, runtime = {}) {
   const messages = [];
+  const { window: windowOverrides, ...globals } = runtime;
   const window = {
     location: { origin: 'https://linux.do' },
     __TAURI_INTERNALS__: { invoke: async (command, args) => messages.push({ command, args }) },
+    ...windowOverrides,
   };
   vm.runInNewContext(script, {
     window, fetch, TypeError,
     document: { readyState: 'complete', querySelector: () => null },
     FormData, Blob, Uint8Array, atob, URL, URLSearchParams, Headers, AbortController, setTimeout, clearTimeout,
-    ...runtime,
+    ...globals,
   });
   return {
     messages,
@@ -76,6 +78,20 @@ test('requests browser verification before consuming the OTP', async () => {
   });
   assert.equal((await client.run({ action: 'login', otp: 'abc123' })).kind, 'challenge');
   assert.equal(count, 1);
+});
+
+test('passive Cloudflare scripts do not block dispatch; interactive challenge pages do', async () => {
+  const passive = bridge(async () => json({ current_user: null }), {
+    document: { readyState: 'complete', querySelector: () => ({ tagName: 'SCRIPT' }) },
+  });
+  await passive.run({ action: 'current_user' });
+  const passiveReady = passive.messages.find(message => message.command === 'site_ready');
+  assert.equal(passiveReady.args.challenge, false);
+
+  const challenged = bridge(async () => json({ current_user: null }), { window: { _cf_chl_opt: { cType: 'managed' } } });
+  await challenged.run({ action: 'current_user' });
+  const challengeReady = challenged.messages.find(message => message.command === 'site_ready');
+  assert.equal(challengeReady.args.challenge, true);
 });
 
 test('expired sessions return logged-out state; network failures are not mistaken for expiry', async () => {

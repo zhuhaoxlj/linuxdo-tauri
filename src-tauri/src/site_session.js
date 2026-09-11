@@ -116,8 +116,10 @@
   };
 
   const ready = () => invoke('site_ready', {
-    challenge: Boolean(window._cf_chl_opt)
-      || Boolean(document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]')),
+    // Only an interactive challenge page may block dispatch. Cloudflare injects passive
+    // challenge-platform scripts on normal pages too; treating those as a challenge would
+    // stall every request. A missed challenge still surfaces via cf-mitigated in request().
+    challenge: Boolean(window._cf_chl_opt),
   });
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', ready, { once: true });
