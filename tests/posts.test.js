@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergePosts, postPayload, submittedPost, uploadMarkdown } from '../src/lib/posts.js';
+import { mergePosts, postPayload, submittedPost, uploadMarkdown, topicFilterParams } from '../src/lib/posts.js';
 
 test('new topics, replies, edits and private messages use their own server contracts', () => {
   assert.deepEqual(postPayload({ kind: 'topic', title: ' Test ', raw: ' Text ', categoryId: '6', tags: 'rust，tauri rust' }),
@@ -24,6 +24,17 @@ test('queued posts never masquerade as a published topic; unknown outcomes are n
   assert.deepEqual(submittedPost({ action: 'enqueued', pending_count: 1 }), { queued: true });
   assert.equal(submittedPost({ post: { id: 10, topic_id: 42 } }).post.id, 10);
   assert.throws(() => submittedPost({ success: true }), /刷新话题确认/);
+});
+
+test('topic filters map to their server-side query parameters', () => {
+  assert.deepEqual(topicFilterParams('summary', 'alice'), { filter: 'summary' });
+  assert.deepEqual(topicFilterParams('activity', 'alice'), { filter: 'activity' });
+  assert.deepEqual(topicFilterParams('op', 'alice'), { username_filters: 'alice' });
+  // 楼主名未知时不发送筛选，退回完整流
+  assert.deepEqual(topicFilterParams('op', ''), {});
+  assert.deepEqual(topicFilterParams('top_level', 'alice'), { filter_top_level_replies: true });
+  assert.deepEqual(topicFilterParams('', 'alice'), {});
+  assert.deepEqual(topicFilterParams(undefined, undefined), {});
 });
 
 test('post pages are merged in floor order without duplicating edited posts', () => {

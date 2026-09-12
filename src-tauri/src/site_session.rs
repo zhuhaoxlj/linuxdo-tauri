@@ -22,6 +22,9 @@ pub enum SessionTask {
         api_key: String,
     },
     CurrentUser,
+    FetchImage {
+        url: String,
+    },
     Api {
         path: String,
         method: String,
@@ -58,9 +61,10 @@ pub struct SiteSession {
 impl SiteSession {
     pub async fn request(&self, app: &AppHandle, task: SessionTask) -> Result<Value, String> {
         // 登录可能需要用户在验证窗口手动完成人机验证并等待页面重载，预算放宽；
-        // 其余请求保持短预算，避免坏掉或被墙的 WebView 把前端挂在加载态。
+        // 图片代理按原图体积放宽；其余请求保持短预算，避免坏掉或被墙的 WebView 把前端挂在加载态。
         let budget = match task {
             SessionTask::Login { .. } => Duration::from_secs(150),
+            SessionTask::FetchImage { .. } => Duration::from_secs(45),
             _ => Duration::from_secs(30),
         };
         let id = uuid::Uuid::new_v4().to_string();

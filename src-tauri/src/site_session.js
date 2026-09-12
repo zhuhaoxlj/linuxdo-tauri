@@ -66,6 +66,42 @@
     return data.current_user?.username ? data.current_user : null;
   }
 
+  // 图片代理：主窗口的 <img> 跨站请求 linux.do 时不携带 SameSite cookie，
+  // 受限图片会 403。这里从 linux.do 同源窗口带会话重新拉取并转 data URL。
+  async function fetchImage(url) {
+    let parsed;
+    try { parsed = new URL(url); } catch { throw new Error('图片地址无效'); }
+    if (parsed.origin !== 'https://linux.do') throw new Error('不支持的图片地址');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      let response;
+      try {
+        // Keep the session for protected forum uploads. Avatar URLs commonly redirect
+        // to cdn.ldstatic.com, whose wildcard CORS header rejects credentialed fetches.
+        response = await fetch(url, { credentials: 'include', cache: 'default', signal: controller.signal });
+      } catch (error) {
+        if (!(error instanceof TypeError)) throw error;
+        // The CDN copy is public; omitting cookies makes the cross-origin redirect CORS-safe.
+        response = await fetch(url, { credentials: 'omit', cache: 'default', signal: controller.signal });
+      }
+      if (!response.ok) throw new Error(`图片加载失败（HTTP ${response.status}）`);
+      const blob = await response.blob();
+      if (blob.size > 25 * 1024 * 1024) throw new Error('图片过大，无法在应用内显示');
+      return { dataUrl: await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error('图片数据读取失败'));
+        reader.readAsDataURL(blob);
+      }) };
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error('图片加载超时，请稍后重试');
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   window.__linuxdoSession = async ({ id, task }) => {
     try {
       let data;
@@ -91,6 +127,8 @@
         } catch { /* The established cookie session is independent of this disposable key. */ }
       } else if (task.action === 'current_user') {
         data = await currentUser();
+      } else if (task.action === 'fetch_image') {
+        data = await fetchImage(task.url);
       } else if (task.action === 'api') {
         data = await apiRequest(task);
       } else if (task.action === 'upload') {

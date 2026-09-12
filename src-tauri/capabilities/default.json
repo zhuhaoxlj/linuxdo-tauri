@@ -13,6 +13,7 @@
     "allow-restore-session",
     "allow-logout",
     "allow-discourse-request",
+    "allow-fetch-forum-image",
     "allow-upload-file"
   ]
 }

@@ -20,5 +20,17 @@ export function absoluteUrl(value) {
 }
 
 export function avatarUrl(template, size = 80) {
-  return template ? absoluteUrl(template.replace('{size}', String(size))) : '';
+  if (!template) return '';
+  const url = absoluteUrl(template.replace('{size}', String(size)));
+  // Discourse serves public avatars through this CDN. The linux.do endpoint can
+  // reject desktop WebView requests with 403 before redirecting to the same file.
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'linux.do'
+      && (parsed.pathname.startsWith('/user_avatar/') || parsed.pathname.startsWith('/letter_avatar/'))) {
+      parsed.hostname = 'cdn.ldstatic.com';
+      return parsed.href;
+    }
+  } catch { /* absoluteUrl already filtered invalid URLs */ }
+  return url;
 }

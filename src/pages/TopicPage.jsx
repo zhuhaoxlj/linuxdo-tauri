@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowLeft, ArrowUp, Bell, Bookmark, Check, Copy, ExternalLink, Eye, ListTree, Lock, MessageSquare, RefreshCw, Reply } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, Bell, Bookmark, Check, Copy, ExternalLink, Eye, Filter, ListTree, Lock, MessageSquare, RefreshCw, Reply } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useApp, useSite } from '../context/AppContext';
 import { api, errorText, topicPath } from '../lib/api';
-import { mergePosts } from '../lib/posts';
+import { mergePosts, topicFilterParams } from '../lib/posts';
 import { useReadingProgress } from '../lib/useReadingProgress';
 import { useNestedTopic } from '../lib/useNestedTopic';
 import { buildProvisionalTree } from '../lib/nestedPosts';
@@ -42,11 +42,17 @@ export default function TopicPage() {
   const [nestedSort, setNestedSort] = useState('old');
   const [nestedPosts, setNestedPosts] = useState([]);
   const [relocateToken, setRelocateToken] = useState(0);
+  const [filter, setFilter] = useState('');
   const appliedNested = useRef('');
   const anchored = useRef('');
   const query = useQuery({
-    queryKey: ['topic', topicId, postNumber || '1'],
-    queryFn: () => api.get('/t/' + topicId + (postNumber ? '/' + postNumber : '') + '.json'),
+    queryKey: ['topic', topicId, postNumber || '1', filter],
+    // 只看楼主的用户名取自已缓存的全量话题数据（切筛选时页面已渲染，缓存必在）；
+    // 不能在渲染期读 topic——它在 query 声明之后才初始化
+    queryFn: () => {
+      const cached = queries.getQueryData(['topic', topicId, postNumber || '1', '']);
+      return api.get('/t/' + topicId + (postNumber ? '/' + postNumber : '') + '.json', topicFilterParams(filter, cached?.details?.created_by?.username || ''));
+    },
   });
   const topic = query.data;
   const posts = useMemo(() => mergePosts(topic?.post_stream?.posts || [], extra), [topic, extra]);
@@ -55,7 +61,7 @@ export default function TopicPage() {
   // 树状视图数据：带楼层进入（>1 楼）时走 context 定位视图，否则拉取根回复列表。
   // 不等待话题接口，进入页面即与话题数据并行加载。
   const nested = useNestedTopic(topicId, nestedView && targetNumber > 1 ? targetNumber : null, nestedSort, nestedView);
-  useEffect(() => { setExtra([]); setComposer(null); setHeadings([]); setActiveHeading(''); setJump(postNumber || '1'); setNestedPosts([]); anchored.current = ''; }, [topicId, postNumber]);
+  useEffect(() => { setExtra([]); setComposer(null); setHeadings([]); setActiveHeading(''); setJump(postNumber || '1'); setNestedPosts([]); setFilter(''); anchored.current = ''; }, [topicId, postNumber]);
   // 每个话题首次加载后应用“默认使用树形视图”设置（私信不支持，强制平铺）
   useEffect(() => {
     if (!topic?.id || appliedNested.current === String(topic.id)) return;
@@ -127,8 +133,16 @@ export default function TopicPage() {
   const reply = () => user ? setComposer({ kind: 'reply', topicId: topic.id }) : requestLogin();
   const treeReady = nested.query.isSuccess;
   const treeNested = treeReady ? nested : { ...nested, contextMode: targetNumber > 1, opPost: posts.find(post => post.post_number === 1) || null, roots: provisionalRoots, contextChain: null, hasMoreRoots: false, loadingMore: false };
+  // 筛选切换：与树状视图互斥；清掉按 id 补充的帖子避免旧流混入筛选结果
+  const changeFilter = value => {
+    setFilter(value);
+    setExtra([]);
+    if (value) setNestedView(false);
+  };
   const go = target => {
     const clamped = Math.max(1, Math.min(Number(target) || 1, topic.highest_post_number || topic.posts_count));
+    // 筛选模式下跳层先还原完整流（对齐 FluxDO 的筛选回落），目标楼层才可见
+    if (filter) setFilter('');
     // 树模式下重复跳转同一楼层时重播定位高亮，而非依赖路由变化
     if (nestedView && clamped === targetNumber) setRelocateToken(token => token + 1);
     else navigate(topicPath(topic.id, clamped));
@@ -148,7 +162,7 @@ export default function TopicPage() {
   const composeId = composer?.kind === 'edit' ? 'edit:' + composer.postId : 'reply:' + topic.id + ':' + (composer?.replyTo || 'topic');
   return <div className="topic-layout"><section className="topic-detail">
     <Link className="back-link" to="/"><ArrowLeft size={15} />返回话题列表</Link>
-    <header className="topic-heading"><div className="topic-meta"><CategoryBadge category={categories[topic.category_id]} />{(topic.tags || []).map(tag => { const name = typeof tag === 'string' ? tag : tag?.name; return name ? <Link className="tag" key={tag?.id || name} to={'/tag/' + encodeURIComponent(name)}>#{name}</Link> : null; })}{topic.archetype === 'private_message' && <span className="tag">私信</span>}</div><h1>{topic.title}</h1><div className="topic-overview"><span><MessageSquare size={15} />{number(topic.posts_count)} 楼</span><span><Eye size={15} />{number(topic.views)} 次浏览</span>{topic.closed && <span><Lock size={15} />话题已关闭</span>}<button className={'button text small' + (nestedView ? ' toggle-active' : '')} aria-pressed={nestedView} title={isPrivateMessage ? '私信不支持树状视图' : undefined} disabled={isPrivateMessage} onClick={() => { setNestedAuto(false); setNestedSort('old'); setNestedView(view => !view); }}><ListTree size={14} />树状视图</button><button className="button text small" onClick={refresh} disabled={query.isFetching}><RefreshCw size={14} className={query.isFetching ? 'spin' : ''} />刷新</button></div></header>
+    <header className="topic-heading"><div className="topic-meta"><CategoryBadge category={categories[topic.category_id]} />{(topic.tags || []).map(tag => { const name = typeof tag === 'string' ? tag : tag?.name; return name ? <Link className="tag" key={tag?.id || name} to={'/tag/' + encodeURIComponent(name)}>#{name}</Link> : null; })}{topic.archetype === 'private_message' && <span className="tag">私信</span>}</div><h1>{topic.title}</h1><div className="topic-overview"><span><MessageSquare size={15} />{number(topic.posts_count)} 楼</span><span><Eye size={15} />{number(topic.views)} 次浏览</span>{topic.closed && <span><Lock size={15} />话题已关闭</span>}<label className="topic-filter"><Filter size={14} /><select className={filter ? 'active' : ''} aria-label="内容筛选" value={filter} onChange={event => changeFilter(event.target.value)}><option value="">全部楼层</option>{topic.has_summary && <option value="summary">热门回复</option>}<option value="op">只看楼主</option><option value="top_level">只看顶层回复</option>{topic.is_post_voting && <option value="activity">按活跃度</option>}</select></label><button className={'button text small' + (nestedView ? ' toggle-active' : '')} aria-pressed={nestedView} title={isPrivateMessage ? '私信不支持树状视图' : undefined} disabled={isPrivateMessage} onClick={() => { setNestedAuto(false); setNestedSort('old'); setFilter(''); setNestedView(view => !view); }}><ListTree size={14} />树状视图</button><button className="button text small" onClick={refresh} disabled={query.isFetching}><RefreshCw size={14} className={query.isFetching ? 'spin' : ''} />刷新</button></div></header>
     {!nestedView && previousIds.length > 0 && <button className="button secondary load-posts" disabled={more.isPending} onClick={() => more.mutate(previousIds)}><ArrowUp size={16} />加载前面的楼层</button>}
     {nestedView ? (nested.query.isPending && !provisionalRoots.length ? <Loading label="正在加载树状视图…" /> : nested.query.isError ? null : <NestedPostList topic={topic} nested={treeNested} sort={nestedSort} onSortChange={setNestedSort} onCompose={setComposer} highlightPostNumber={treeNested.contextMode ? targetNumber : null} relocateToken={relocateToken} onVisiblePosts={setNestedPosts} onViewFullTopic={viewFullTopic} onViewParentContext={target => navigate(topicPath(topic.id, target))} lineStyle={settings.nestedLineStyle || 'auto'} onChanged={() => {
       invalidateNested();

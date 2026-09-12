@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import hljs from 'highlight.js/lib/common';
 import { internalPath } from '../lib/api';
+import { loadForumImage } from '../lib/forumImage';
 import Dialog from './Dialog';
 
 export default function Cooked({ html = '', className = '' }) {
@@ -59,13 +60,23 @@ export default function Cooked({ html = '', className = '' }) {
     });
     return () => node.querySelectorAll('.code-copy').forEach(button => button.remove());
   }, [safe]);
-  // 图片加载失败时替换为可点占位，避免浏览器按原始宽高比留下大片空白框
+  // 图片加载失败时：linux.do 资源先走会话代理重取（跨站 img 不带 SameSite cookie，
+  // 受限图片直连会 403），仍失败才替换为可点占位，避免留下大片空白框
   useEffect(() => {
     const node = root.current;
     if (!node) return undefined;
-    const onError = event => {
+    const onError = async event => {
       const image = event.target;
-      if (image?.tagName !== 'IMG' || image.dataset.broken) return;
+      if (image?.tagName !== 'IMG' || image.dataset.broken || image.dataset.proxied) return;
+      if (image.src.startsWith('https://linux.do/')) {
+        image.dataset.proxied = 'true';
+        try {
+          const dataUrl = await loadForumImage(image.src);
+          if (image.isConnected) image.src = dataUrl;
+          return;
+        } catch { /* fall through to the broken placeholder */ }
+      }
+      if (!image.isConnected) return;
       image.dataset.broken = 'true';
       const link = document.createElement('a');
       link.className = 'image-broken';
@@ -105,6 +116,19 @@ export default function Cooked({ html = '', className = '' }) {
   const currentImage = viewer?.images[viewer.index];
   return <>
     <div ref={root} className={`cooked ${className}`} onClick={click} dangerouslySetInnerHTML={{ __html: safe }} />
-    {currentImage && <Dialog title={currentImage.alt} wide onClose={() => setViewer(null)}><div className="image-viewer"><img src={currentImage.src} alt={currentImage.alt} /><div className="image-viewer-actions"><button className="icon-button" type="button" aria-label="上一张图片" title="上一张" disabled={viewer.images.length < 2} onClick={() => setViewer(current => ({ ...current, index: (current.index - 1 + current.images.length) % current.images.length }))}><ChevronLeft size={20} /></button><span>{viewer.index + 1} / {viewer.images.length}</span><button className="icon-button" type="button" aria-label="下一张图片" title="下一张" disabled={viewer.images.length < 2} onClick={() => setViewer(current => ({ ...current, index: (current.index + 1) % current.images.length }))}><ChevronRight size={20} /></button><a className="button secondary small" href={currentImage.src} download><Download size={15} />保存图片</a></div></div></Dialog>}
+    {currentImage && <Dialog title={currentImage.alt} wide onClose={() => setViewer(null)}><div className="image-viewer"><img src={currentImage.src} alt={currentImage.alt} onError={async event => {
+      const image = event.target;
+      if (image.dataset.proxied) return;
+      image.dataset.proxied = 'true';
+      try {
+        const dataUrl = await loadForumImage(image.src);
+        setViewer(current => {
+          if (!current || !current.images[current.index]) return current;
+          const images = [...current.images];
+          images[current.index] = { ...images[current.index], src: dataUrl };
+          return { ...current, images };
+        });
+      } catch { /* keep showing the broken image */ }
+    }} /><div className="image-viewer-actions"><button className="icon-button" type="button" aria-label="上一张图片" title="上一张" disabled={viewer.images.length < 2} onClick={() => setViewer(current => ({ ...current, index: (current.index - 1 + current.images.length) % current.images.length }))}><ChevronLeft size={20} /></button><span>{viewer.index + 1} / {viewer.images.length}</span><button className="icon-button" type="button" aria-label="下一张图片" title="下一张" disabled={viewer.images.length < 2} onClick={() => setViewer(current => ({ ...current, index: (current.index + 1) % current.images.length }))}><ChevronRight size={20} /></button><a className="button secondary small" href={currentImage.src} download><Download size={15} />保存图片</a></div></div></Dialog>}
   </>;
 }

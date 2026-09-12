@@ -3,12 +3,20 @@ import { Link } from 'react-router-dom';
 import { AlertCircle, ArrowLeft, Inbox, LoaderCircle, RefreshCw } from 'lucide-react';
 import { avatarUrl } from '../lib/format';
 import { errorText } from '../lib/api';
+import { loadForumImage } from '../lib/forumImage';
 
 export function Avatar({ user, size = 36 }) {
   const [failed, setFailed] = React.useState(false);
+  const [proxied, setProxied] = React.useState('');
   const src = avatarUrl(user?.avatar_template, size * 2);
+  // 头像同样可能被跨站无 cookie 的 403 拦截，失败时经会话代理重取
+  const display = proxied || src;
   return src && !failed
-    ? <img className="avatar" width={size} height={size} src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
+    ? <img className="avatar" width={size} height={size} src={display} alt="" loading="lazy" onError={async event => {
+      if (event.currentTarget.dataset.proxied || !event.currentTarget.src.startsWith('https://linux.do/')) { setFailed(true); return; }
+      event.currentTarget.dataset.proxied = 'true';
+      try { setProxied(await loadForumImage(event.currentTarget.src)); } catch { setFailed(true); }
+    }} />
     : <span className="avatar avatar-fallback" style={{ width: size, height: size }} aria-hidden="true">{(user?.username || 'F').slice(0, 1).toUpperCase()}</span>;
 }
 

@@ -60,6 +60,7 @@
   - Tauri 落点：扩展 `src/components/Cooked.jsx`，新增图片查看器组件和保存原图命令。
   - 目标：点击图片放大、左右切换、ESC 关闭、复制/保存原图、加载失败提示。
   - 2026-09-12 补充：内容清洗阶段直接拆掉 Discourse lightbox 包装——图片外提、原图地址记入 `data-original` 供查看器加载原图，丢弃「文件名 尺寸 大小」meta 行与包装元素（消除包装布局空白）；cooked 图片同时约束 `max-height: 75vh`（竖长图不占数屏），加载失败的图片替换为「点击查看原图」占位条。
+  - 2026-09-12 图片代理：主窗口 `<img>` 跨站请求 linux.do 不携带 SameSite cookie，受限图片 403（对齐 FluxDO 主域图片走带 CookieJar 客户端的做法）。图片加载失败先经会话窗口代理（`fetch_forum_image` → `SessionTask::FetchImage`，同源带会话 fetch 转 data URL，JS/Rust 双侧预算与正负缓存），仍失败才显示占位条；查看器原图同样兜底。
   - 验收：同一帖子多张图片可连续浏览；外部图片和相对图片均可打开；关闭后保持原滚动位置。
 
 - [ ] **代码块增强**（代码已接入，待桌面真实验证）
@@ -70,10 +71,10 @@
 
 ### 阶段二：话题处理效率
 
-- [ ] **话题筛选模式**
+- [x] **话题筛选模式**（2026-09-12 代码接入，待桌面真实验证）
   - FluxDO 参考：[`_filter_actions.dart`](https://github.com/Lingyan000/fluxdo/blob/e1bd839ef87825347c062fb588751a1a62e02372/lib/pages/topic_detail_page/actions/_filter_actions.dart)
-  - 建议顺序：热门回复、只看楼主、只看顶层回复、按活跃度排序；树状回复已于 2026-09-11 单独迁移完成。
-  - Tauri 落点：`src/pages/TopicPage.jsx`、`src/lib/api.js`、帖子合并逻辑。
+  - 热门回复、只看楼主、只看顶层回复、按活跃度排序均走 Discourse 原生服务端参数（`filter=summary`、`username_filters`、`filter_top_level_replies`、`filter=activity`），参数组装见 `topicFilterParams`；树状回复此前已单独完成。筛选与树状视图互斥；跳层时还原完整流；筛选状态在刷新与加载更多后保持（服务端筛选集，阅读进度仍为真实楼层号）。"热门回复"仅在有摘要资格的话题显示（`has_summary`），"按活跃度"仅在问答话题显示。
+  - Tauri 落点：`src/pages/TopicPage.jsx`（筛选下拉与互斥）、`src/lib/posts.js`（`topicFilterParams`）、`tests/posts.test.js`。
   - 验收：筛选状态可取消；刷新或加载更多不会丢失筛选；筛选后的阅读进度仍使用真实楼层号。
 
 - [ ] **楼层键盘快捷键**

@@ -128,6 +128,24 @@ async fn discourse_request(
 }
 
 #[tauri::command]
+async fn fetch_forum_image(
+    app: tauri::AppHandle,
+    session: State<'_, SiteSession>,
+    url: String,
+) -> Result<Value, String> {
+    // 只代理论坛自身资源：主窗口的 <img> 跨站不带 SameSite cookie，受限图片会 403，
+    // 由 linux.do 同源的会话窗口带会话重新拉取。
+    let host = url::Url::parse(&url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(|host| host.to_string()))
+        .ok_or("图片地址无效")?;
+    if host != "linux.do" {
+        return Err("不支持的图片地址".into());
+    }
+    session.request(&app, SessionTask::FetchImage { url }).await
+}
+
+#[tauri::command]
 fn site_ready(
     window: tauri::WebviewWindow,
     session: State<'_, SiteSession>,
@@ -217,6 +235,7 @@ pub fn run() {
             restore_session,
             logout,
             discourse_request,
+            fetch_forum_image,
             upload_file,
             site_ready,
             site_response,

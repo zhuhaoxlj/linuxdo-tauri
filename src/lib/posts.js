@@ -35,6 +35,16 @@ export function mergePosts(existing, incoming) {
     .sort((left, right) => left.post_number - right.post_number);
 }
 
+// 话题筛选模式对应的服务端参数（对齐 FluxDO _filter_actions.dart / Discourse 原生筛选）：
+// summary 热门回复、activity 问答话题按活跃度、op 只看楼主（username_filters 服务端恒保留 1 楼）、
+// top_level 只看顶层回复。空筛选返回空参数。
+export function topicFilterParams(filter, opUsername) {
+  if (filter === 'summary' || filter === 'activity') return { filter };
+  if (filter === 'op' && opUsername) return { username_filters: opUsername };
+  if (filter === 'top_level') return { filter_top_level_replies: true };
+  return {};
+}
+
 export function uploadMarkdown(upload, file) {
   const url = upload.short_url || upload.url;
   if (!url || !/^(upload:\/\/|https?:\/\/|\/)/i.test(url)) throw new Error('上传完成，但服务器没有返回有效附件地址');

@@ -226,6 +226,9 @@ kbd { font-family: inherit; font-size: 0.625rem; border: 1px solid var(--line); 
 .topic-heading h1 { margin: 14px 0 13px; font-size: 1.5625rem; overflow-wrap: anywhere; }
 .topic-overview { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; font-size: 0.6875rem; color: var(--muted); }
 .topic-overview > span { display: flex; align-items: center; gap: 6px; }
+.topic-filter { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: .6875rem; }
+.topic-filter select { padding: 5px 6px; font-size: .6875rem; color: inherit; border-radius: 7px; }
+.topic-filter select.active { color: var(--accent); border-color: var(--accent); }
 .post-stream { display: flex; flex-direction: column; gap: 18px; }
 .forum-post { padding: 25px; scroll-margin-top: 16px; }
 .post-header { display: flex; align-items: center; gap: 11px; margin-bottom: 20px; }

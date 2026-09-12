@@ -94,6 +94,49 @@ test('passive Cloudflare scripts do not block dispatch; interactive challenge pa
   assert.equal(challengeReady.args.challenge, true);
 });
 
+class MockFileReader {
+  readAsDataURL(blob) {
+    blob.arrayBuffer().then(buffer => {
+      this.result = 'data:image/png;base64,' + Buffer.from(buffer).toString('base64');
+      this.onload();
+    });
+  }
+}
+
+test('image proxy carries the session, returns data urls and rejects foreign hosts', async () => {
+  const client = bridge(async (url, options) => {
+    assert.equal(url, 'https://linux.do/uploads/optimized/3X/a/1.png');
+    assert.equal(options.credentials, 'include');
+    return new Response(new Blob(['img-bytes'], { type: 'image/png' }), { status: 200 });
+  }, { FileReader: MockFileReader });
+  const reply = await client.run({ action: 'fetch_image', url: 'https://linux.do/uploads/optimized/3X/a/1.png' });
+  assert.equal(reply.kind, 'success');
+  assert.match(reply.data.dataUrl, /^data:image\/png;base64,/);
+  assert.equal(Buffer.from(reply.data.dataUrl.split(',')[1], 'base64').toString(), 'img-bytes');
+
+  const denied = bridge(async () => new Response('denied', { status: 403 }), { FileReader: MockFileReader });
+  const failure = await denied.run({ action: 'fetch_image', url: 'https://linux.do/uploads/optimized/3X/a/1.png' });
+  assert.equal(failure.kind, 'error');
+  assert.match(failure.message, /HTTP 403/);
+
+  const foreign = bridge(async () => { throw new Error('must not be fetched'); });
+  const rejected = await foreign.run({ action: 'fetch_image', url: 'https://evil.example/x.png' });
+  assert.equal(rejected.kind, 'error');
+  assert.match(rejected.message, /不支持的图片地址/);
+});
+
+test('image proxy retries public CDN redirects without credentials', async () => {
+  const credentials = [];
+  const client = bridge(async (url, options) => {
+    credentials.push(options.credentials);
+    if (options.credentials === 'include') throw new TypeError('CORS wildcard rejected credentials');
+    return new Response(new Blob(['avatar'], { type: 'image/png' }), { status: 200 });
+  }, { FileReader: MockFileReader });
+  const reply = await client.run({ action: 'fetch_image', url: 'https://linux.do/user_avatar/linux.do/test/60/1_2.png' });
+  assert.deepEqual(credentials, ['include', 'omit']);
+  assert.equal(Buffer.from(reply.data.dataUrl.split(',')[1], 'base64').toString(), 'avatar');
+});
+
 test('expired sessions return logged-out state; network failures are not mistaken for expiry', async () => {
   assert.equal((await bridge(async () => json({}, 401)).run({ action: 'current_user' })).data, null);
   const reply = await bridge(async () => { throw new TypeError('network'); }).run({ action: 'current_user' });
