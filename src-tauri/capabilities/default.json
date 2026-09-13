@@ -6,6 +6,9 @@
   "permissions": [
     "core:default",
     "clipboard-manager:allow-read-image",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-write-html",
+    "clipboard-manager:allow-write-image",
     "deep-link:default",
     "opener:default",
     "allow-start-oauth-flow",

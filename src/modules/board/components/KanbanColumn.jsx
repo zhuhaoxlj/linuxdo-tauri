@@ -49,6 +49,7 @@ export default function KanbanColumn({
 
   return (
     <section
+      data-column-id={column.id}
       className={`kanban-column${collapsed ? ' collapsed' : ''}${isDropTarget ? ' drop-target' : ''}`}
       onDragOver={event => { event.preventDefault(); onDropOnColumn.hover(column.id); }}
       onDragLeave={() => onDropOnColumn.leave(column.id)}

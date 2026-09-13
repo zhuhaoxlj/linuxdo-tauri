@@ -1,13 +1,17 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreHorizontal, Pencil, Trash2, X } from 'lucide-react';
+import { Copy, MoreHorizontal, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
+import { copyCardContent } from '../lib/clipboardContent';
 import ImageThumbnail from './ImageThumbnail';
+
+const copyMessages = { copying: '正在复制…', copied: '已复制到剪贴板', failed: '复制失败，请重试' };
 
 export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDropOnCard }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [pasteError, setPasteError] = useState('');
+  const [copyStatus, setCopyStatus] = useState('');
   const [title, setTitle] = useState(task.title);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const buttonRef = useRef(null);
@@ -18,6 +22,12 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
   useEffect(() => {
     setTitle(task.title);
   }, [task.title]);
+
+  useEffect(() => {
+    if (copyStatus !== 'copied') return undefined;
+    const timer = setTimeout(() => setCopyStatus(''), 2000);
+    return () => clearTimeout(timer);
+  }, [copyStatus]);
 
   useLayoutEffect(() => {
     if (!menuOpen || !buttonRef.current) return undefined;
@@ -67,6 +77,26 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
     setEditing(false);
   };
 
+  const startEditing = () => {
+    setMenuOpen(false);
+    setPasteError('');
+    setEditing(true);
+  };
+
+  const copyContent = async () => {
+    if (copyStatus === 'copying') return;
+    const currentTitle = editing ? title.trim() : task.title;
+    if (editing) save();
+    setMenuOpen(false);
+    setCopyStatus('copying');
+    try {
+      await copyCardContent({ title: currentTitle, images });
+      setCopyStatus('copied');
+    } catch {
+      setCopyStatus('failed');
+    }
+  };
+
   const attachImages = async event => {
     setPasteError('');
     try {
@@ -81,12 +111,18 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
   return (
     <article
       ref={cardRef}
-      className="kanban-card"
+      className={`kanban-card${task.pinned ? ' is-pinned' : ''}`}
+      data-task-id={task.id}
       draggable={!editing && !menuOpen}
       onDragStart={event => onDragStart(event, task.id)}
       onDragOver={event => event.preventDefault()}
       onDrop={event => onDropOnCard(event, task.id)}
+      onDoubleClick={event => {
+        if (event.target.closest('button, textarea, input, a, dialog, [role="menu"]')) return;
+        startEditing();
+      }}
     >
+      {task.pinned && <span className="kanban-pin-badge"><Pin size={12} />已置顶</span>}
       {editing ? (
         <textarea
           className="kanban-card-editor"
@@ -136,6 +172,11 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
       )}
 
       {pasteError && <p className="kanban-paste-error" role="alert">{pasteError}</p>}
+      {copyStatus && (
+        <p className={`kanban-copy-status${copyStatus === 'failed' ? ' is-error' : ''}`} role={copyStatus === 'failed' ? 'alert' : 'status'}>
+          {copyMessages[copyStatus]}
+        </p>
+      )}
 
       <div className="kanban-card-menu">
         <button
@@ -144,6 +185,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
           className="kanban-icon-button"
           aria-label="卡片操作"
           aria-expanded={menuOpen}
+          aria-haspopup="menu"
           onPointerDown={event => event.stopPropagation()}
           onClick={() => setMenuOpen(open => !open)}
         >
@@ -156,10 +198,21 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
             role="menu"
             style={{ top: menuPos.top, left: menuPos.left }}
           >
-            <button type="button" onClick={() => { setMenuOpen(false); setEditing(true); }}>
+            <button type="button" role="menuitem" onClick={startEditing}>
               <Pencil size={14} />编辑
             </button>
-            <button type="button" className="danger" onClick={() => onDelete(task.id)}>
+            <button type="button" role="menuitem" onClick={() => {
+              if (editing) save();
+              setMenuOpen(false);
+              onUpdate(task.id, { pinned: !task.pinned });
+            }}>
+              {task.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+              {task.pinned ? '取消置顶' : '置顶'}
+            </button>
+            <button type="button" role="menuitem" aria-label="复制卡片内容到剪贴板" disabled={copyStatus === 'copying'} onClick={copyContent}>
+              <Copy size={14} />复制
+            </button>
+            <button type="button" role="menuitem" className="danger" onClick={() => onDelete(task.id)}>
               <Trash2 size={14} />删除
             </button>
           </div>,

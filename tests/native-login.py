@@ -19,10 +19,11 @@ def main():
     parser.add_argument('--full', action='store_true', help='Also run the login exchange with isolated forum fixtures')
     parser.add_argument('--migration', action='store_true', help='Exercise the migrated forum pages against isolated fixtures')
     parser.add_argument('--clipboard', action='store_true', help='Test board paste using the current clipboard image without changing it')
+    parser.add_argument('--board', action='store_true', help='Test card editing, pinning and clipboard copying with isolated board data')
     args = parser.parse_args()
     args.full = args.full or args.migration
-    if args.clipboard and args.full:
-        parser.error('--clipboard cannot be combined with --full or --migration')
+    if sum((args.clipboard, args.board, args.full)) > 1:
+        parser.error('Choose only one of --clipboard, --board, or --full/--migration')
     binary = str(args.binary.resolve())
     directory = Path(tempfile.mkdtemp(prefix='linuxdo-native-test-'))
     (directory / 'config').mkdir()
@@ -85,8 +86,11 @@ def main():
         def async_script(source):
             return call('POST', f'/session/{session}/execute/async', {'script': source, 'args': []})
 
-        if args.clipboard:
-            from native_clipboard import run
+        if args.clipboard or args.board:
+            if args.board:
+                from native_board import run
+            else:
+                from native_clipboard import run
 
             def webdriver(method, path, payload=None):
                 return call(method, f'/session/{session}{path}', payload)

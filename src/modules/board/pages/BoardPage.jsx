@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { KANBAN_COLUMNS, useBoard } from '../context/BoardContext';
 import KanbanColumn from '../components/KanbanColumn';
+import { sortPinnedTasks } from '../lib/tasks';
 
 export default function BoardPage() {
   const {
@@ -18,7 +19,7 @@ export default function BoardPage() {
 
   const currentCategory = categories.find(category => category.id === activeCategory);
   const filteredTasks = useMemo(
-    () => tasks.filter(task => task.category === activeCategory),
+    () => sortPinnedTasks(tasks.filter(task => task.category === activeCategory)),
     [tasks, activeCategory],
   );
 
