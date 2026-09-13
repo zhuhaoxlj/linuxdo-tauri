@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MoreHorizontal, Pencil, Trash2, X } from 'lucide-react';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
+import ImageThumbnail from './ImageThumbnail';
 
 export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDropOnCard }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -117,7 +118,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
         <div className="kanban-image-row">
           {images.map((src, index) => (
             <div className="kanban-image-thumb" key={src.slice(-24) + index}>
-              <img src={src} alt="" />
+              <ImageThumbnail src={src} index={index} />
               {editing && (
                 <button
                   type="button"

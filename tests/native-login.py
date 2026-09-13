@@ -88,17 +88,10 @@ def main():
         if args.clipboard:
             from native_clipboard import run
 
-            def paste():
-                call('POST', f'/session/{session}/actions', {'actions': [{
-                    'type': 'key', 'id': 'clipboard-keyboard', 'actions': [
-                        {'type': 'keyDown', 'value': '\ue009'},
-                        {'type': 'keyDown', 'value': 'v'},
-                        {'type': 'keyUp', 'value': 'v'},
-                        {'type': 'keyUp', 'value': '\ue009'},
-                    ],
-                }]})
+            def webdriver(method, path, payload=None):
+                return call(method, f'/session/{session}{path}', payload)
 
-            run(script, wait_for, paste,
+            run(script, wait_for, webdriver,
                 lambda: call('GET', f'/session/{session}/screenshot'), directory)
             print('Artifacts:', directory)
             return

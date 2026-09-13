@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, GripVertical, Plus, X } from 'lucide-react';
 import KanbanCard from './KanbanCard';
+import ImageThumbnail from './ImageThumbnail';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 
 export default function KanbanColumn({
@@ -104,7 +105,7 @@ export default function KanbanColumn({
                 <div className="kanban-image-row">
                   {images.map((src, index) => (
                     <div className="kanban-image-thumb" key={src.slice(-24) + index}>
-                      <img src={src} alt="" />
+                      <ImageThumbnail src={src} index={index} />
                       <button
                         type="button"
                         className="kanban-image-remove"
