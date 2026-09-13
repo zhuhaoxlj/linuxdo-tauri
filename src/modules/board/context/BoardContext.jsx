@@ -76,6 +76,7 @@ export function BoardProvider({ children }) {
       createdAt: new Date().toISOString(),
       ...task,
       column,
+      images: task.images || [],
       completed: column === 'done',
     })]);
   };

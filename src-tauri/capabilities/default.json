@@ -5,6 +5,7 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "clipboard-manager:allow-read-image",
     "deep-link:default",
     "opener:default",
     "allow-start-oauth-flow",

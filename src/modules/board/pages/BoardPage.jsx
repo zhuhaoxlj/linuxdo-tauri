@@ -50,7 +50,7 @@ export default function BoardPage() {
             cards={filteredTasks.filter(task => task.column === column.id)}
             collapsed={Boolean(collapsed[column.id])}
             onToggleCollapsed={() => setCollapsed(current => ({ ...current, [column.id]: !current[column.id] }))}
-            onAdd={title => addTask({ title, category: activeCategory, column: column.id })}
+            onAdd={({ title, images }) => addTask({ title, images, category: activeCategory, column: column.id })}
             onUpdate={updateTask}
             onDelete={deleteTask}
             onDragStart={onDragStart}

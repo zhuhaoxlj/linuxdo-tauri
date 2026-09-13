@@ -1,14 +1,18 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import { MoreHorizontal, Pencil, Trash2, X } from 'lucide-react';
+import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 
 export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDropOnCard }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [pasteError, setPasteError] = useState('');
   const [title, setTitle] = useState(task.title);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
+  const cardRef = useRef(null);
+  const images = task.images || [];
 
   useEffect(() => {
     setTitle(task.title);
@@ -57,13 +61,25 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
 
   const save = () => {
     const next = title.trim();
-    if (next && next !== task.title) onUpdate(task.id, { title: next });
-    else setTitle(task.title);
+    if (next !== (task.title || '')) onUpdate(task.id, { title: next });
+    else setTitle(task.title || '');
     setEditing(false);
+  };
+
+  const attachImages = async event => {
+    setPasteError('');
+    try {
+      const next = await imagesFromClipboardEvent(event, MAX_CARD_IMAGES - images.length);
+      if (!next.length) return;
+      onUpdate(task.id, { images: [...images, ...next].slice(0, MAX_CARD_IMAGES) });
+    } catch (error) {
+      setPasteError(error.message || '图片读取失败，请重新复制图片后再试');
+    }
   };
 
   return (
     <article
+      ref={cardRef}
       className="kanban-card"
       draggable={!editing && !menuOpen}
       onDragStart={event => onDragStart(event, task.id)}
@@ -75,14 +91,18 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
           className="kanban-card-editor"
           value={title}
           onChange={event => setTitle(event.target.value)}
-          onBlur={save}
+          onBlur={event => {
+            if (cardRef.current?.contains(event.relatedTarget)) return;
+            save();
+          }}
+          onPaste={attachImages}
           onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               save();
             }
             if (event.key === 'Escape') {
-              setTitle(task.title);
+              setTitle(task.title || '');
               setEditing(false);
             }
           }}
@@ -90,8 +110,31 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
           autoFocus
         />
       ) : (
-        <p className="kanban-card-title">{task.title}</p>
+        task.title ? <p className="kanban-card-title">{task.title}</p> : null
       )}
+
+      {images.length > 0 && (
+        <div className="kanban-image-row">
+          {images.map((src, index) => (
+            <div className="kanban-image-thumb" key={src.slice(-24) + index}>
+              <img src={src} alt="" />
+              {editing && (
+                <button
+                  type="button"
+                  className="kanban-image-remove"
+                  aria-label="移除图片"
+                  onMouseDown={event => event.preventDefault()}
+                  onClick={() => onUpdate(task.id, { images: images.filter((_, item) => item !== index) })}
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {pasteError && <p className="kanban-paste-error" role="alert">{pasteError}</p>}
 
       <div className="kanban-card-menu">
         <button

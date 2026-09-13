@@ -18,8 +18,11 @@ def main():
     parser.add_argument('--binary', type=Path, default=Path('src-tauri/target/debug/linuxdo-tauri'))
     parser.add_argument('--full', action='store_true', help='Also run the login exchange with isolated forum fixtures')
     parser.add_argument('--migration', action='store_true', help='Exercise the migrated forum pages against isolated fixtures')
+    parser.add_argument('--clipboard', action='store_true', help='Test board paste using the current clipboard image without changing it')
     args = parser.parse_args()
     args.full = args.full or args.migration
+    if args.clipboard and args.full:
+        parser.error('--clipboard cannot be combined with --full or --migration')
     binary = str(args.binary.resolve())
     directory = Path(tempfile.mkdtemp(prefix='linuxdo-native-test-'))
     (directory / 'config').mkdir()
@@ -81,6 +84,24 @@ def main():
 
         def async_script(source):
             return call('POST', f'/session/{session}/execute/async', {'script': source, 'args': []})
+
+        if args.clipboard:
+            from native_clipboard import run
+
+            def paste():
+                call('POST', f'/session/{session}/actions', {'actions': [{
+                    'type': 'key', 'id': 'clipboard-keyboard', 'actions': [
+                        {'type': 'keyDown', 'value': '\ue009'},
+                        {'type': 'keyDown', 'value': 'v'},
+                        {'type': 'keyUp', 'value': 'v'},
+                        {'type': 'keyUp', 'value': '\ue009'},
+                    ],
+                }]})
+
+            run(script, wait_for, paste,
+                lambda: call('GET', f'/session/{session}/screenshot'), directory)
+            print('Artifacts:', directory)
+            return
 
         wait_for(lambda: script("return Boolean(document.querySelector('button:not([disabled])'));"), 'Login listener never became ready')
         child = subprocess.Popen([binary, 'discourse://auth_redirect?payload=native-regression'], env=env, stdout=log, stderr=log)

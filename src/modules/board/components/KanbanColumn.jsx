@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, GripVertical, Plus, X } from 'lucide-react';
 import KanbanCard from './KanbanCard';
+import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 
 export default function KanbanColumn({
   column,
@@ -17,13 +18,32 @@ export default function KanbanColumn({
 }) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
+  const [images, setImages] = useState([]);
+  const [pasteError, setPasteError] = useState('');
+
+  const resetComposer = () => {
+    setTitle('');
+    setImages([]);
+    setPasteError('');
+    setAdding(false);
+  };
 
   const submit = event => {
     event.preventDefault();
-    if (!title.trim()) return;
-    onAdd(title.trim());
-    setTitle('');
-    setAdding(false);
+    if (!title.trim() && !images.length) return;
+    onAdd({ title: title.trim(), images });
+    resetComposer();
+  };
+
+  const attachImages = async event => {
+    setPasteError('');
+    try {
+      const next = await imagesFromClipboardEvent(event, MAX_CARD_IMAGES - images.length);
+      if (!next.length) return;
+      setImages(current => [...current, ...next].slice(0, MAX_CARD_IMAGES));
+    } catch (error) {
+      setPasteError(error.message || '图片读取失败，请重新复制图片后再试');
+    }
   };
 
   return (
@@ -67,25 +87,41 @@ export default function KanbanColumn({
               <textarea
                 value={title}
                 onChange={event => setTitle(event.target.value)}
-                placeholder="输入卡片标题"
+                placeholder="输入卡片标题，可粘贴图片"
                 rows={2}
                 autoFocus
+                onPaste={attachImages}
                 onKeyDown={event => {
                   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
                     event.preventDefault();
                     submit(event);
                     return;
                   }
-                  if (event.key === 'Escape') {
-                    setAdding(false);
-                    setTitle('');
-                  }
+                  if (event.key === 'Escape') resetComposer();
                 }}
               />
+              {images.length > 0 && (
+                <div className="kanban-image-row">
+                  {images.map((src, index) => (
+                    <div className="kanban-image-thumb" key={src.slice(-24) + index}>
+                      <img src={src} alt="" />
+                      <button
+                        type="button"
+                        className="kanban-image-remove"
+                        aria-label="移除图片"
+                        onClick={() => setImages(current => current.filter((_, item) => item !== index))}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {pasteError && <p className="kanban-paste-error" role="alert">{pasteError}</p>}
               <div className="kanban-add-actions">
                 <button type="submit" className="kanban-add-confirm">添加卡片</button>
                 <span className="kanban-shortcut">Ctrl+Enter</span>
-                <button type="button" className="kanban-icon-button" aria-label="取消" onClick={() => { setAdding(false); setTitle(''); }}>
+                <button type="button" className="kanban-icon-button" aria-label="取消" onClick={resetComposer}>
                   <X size={16} />
                 </button>
               </div>

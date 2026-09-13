@@ -85,6 +85,10 @@ src/
 3. **完成任务**：点击任务左侧的圆形复选框
 4. **编辑/删除**：点击任务右侧的图标
 
+添加卡片或通过卡片菜单进入编辑后，在输入框按 `Ctrl+V`（macOS 为 `Cmd+V`）可粘贴图片。
+每张卡片最多保存 4 张图片，图片会压缩至长边不超过 960 像素，以 JPEG 格式保存在本地。
+桌面版使用 Tauri 原生剪贴板读图；更新原生依赖后需要重启开发版，仅刷新网页不足以生效。
+
 ### LinuxDo 论坛
 
 1. 点击侧边栏的「LinuxDo」进入论坛
@@ -92,6 +96,19 @@ src/
 3. 所有原有功能保持不变
 
 详细使用说明请查看 [docs/USAGE.md](docs/USAGE.md)
+
+## 🧪 图片粘贴回归
+
+运行 `npm test` 检查剪贴板解析、原生读图、资源释放和错误处理。
+Linux 原生验证需要 `WebKitWebDriver`，先复制一张图片并启动 `npm run tauri dev`，再运行：
+
+```bash
+dbus-run-session \
+  --config-file tests/dbus-session.conf -- \
+  /usr/bin/python3 -B tests/native-login.py --clipboard
+```
+
+原生测试使用隔离的应用数据，不更改系统剪贴板，覆盖新建、编辑、保存后重载和图片数量上限。
 
 ## 🏗️ 架构说明
 
