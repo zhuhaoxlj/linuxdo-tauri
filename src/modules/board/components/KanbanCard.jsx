@@ -1,8 +1,9 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Copy, MoreHorizontal, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 import { copyCardContent } from '../lib/clipboardContent';
+import { linkSegments, openLinkFromEvent } from '../lib/links';
 import ImageThumbnail from './ImageThumbnail';
 
 const copyMessages = { copying: '正在复制…', copied: '已复制到剪贴板', failed: '复制失败，请重试' };
@@ -18,6 +19,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
   const menuRef = useRef(null);
   const cardRef = useRef(null);
   const images = task.images || [];
+  const titleSegments = useMemo(() => linkSegments(task.title), [task.title]);
 
   useEffect(() => {
     setTitle(task.title);
@@ -97,6 +99,13 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
     }
   };
 
+  const openTitleLink = (event, url) => {
+    // 始终阻止默认行为，避免 WebView 在应用内导航到外部地址。
+    event.preventDefault();
+    event.stopPropagation();
+    openLinkFromEvent(event, url).catch(console.error);
+  };
+
   const attachImages = async event => {
     setPasteError('');
     try {
@@ -147,7 +156,25 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
           autoFocus
         />
       ) : (
-        task.title ? <p className="kanban-card-title">{task.title}</p> : null
+        task.title ? (
+          <p className="kanban-card-title">
+            {titleSegments.map((segment, index) => (
+              segment.type === 'link' ? (
+                <a
+                  key={index}
+                  className="kanban-card-link"
+                  href={segment.value}
+                  title="Ctrl+点击在浏览器中打开"
+                  draggable={false}
+                  onAuxClick={event => event.preventDefault()}
+                  onClick={event => openTitleLink(event, segment.value)}
+                >
+                  {segment.value}
+                </a>
+              ) : <React.Fragment key={index}>{segment.value}</React.Fragment>
+            ))}
+          </p>
+        ) : null
       )}
 
       {images.length > 0 && (

@@ -131,6 +131,13 @@
   color: #1f2937;
   word-break: break-word;
 }
+.kanban-card-link {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.kanban-card-link:hover { color: #1d4ed8; }
 .kanban-card-menu { position: absolute; top: 6px; right: 6px; }
 .kanban-card-editor {
   width: 100%;
