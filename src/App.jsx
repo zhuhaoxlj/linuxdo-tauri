@@ -1,66 +1,80 @@
-import React, { lazy, Suspense, useEffect } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import React, { useEffect, lazy, Suspense } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { useAuth } from './context/AuthContext';
-import { useApp } from './context/AppContext';
-import { errorText } from './lib/api';
-import Login from './components/Login';
-import Shell from './components/Shell';
-import { Empty, Loading } from './components/Common';
+import { BoardProvider } from './modules/board/context/BoardContext';
+import AppLayout from './shared/components/AppLayout';
+import BoardPage from './modules/board/pages/BoardPage';
 
-const TopicsPage = lazy(() => import('./pages/TopicsPage'));
-const TopicPage = lazy(() => import('./pages/TopicPage'));
-const CategoriesPage = lazy(() => import('./pages/CategoriesPage'));
-const SearchPage = lazy(() => import('./pages/SearchPage'));
-const ComposePage = lazy(() => import('./pages/ComposePage'));
-const BookmarksPage = lazy(() => import('./pages/BookmarksPage'));
-const HistoryPage = lazy(() => import('./pages/HistoryPage'));
-const DraftsPage = lazy(() => import('./pages/DraftsPage'));
-const PendingPage = lazy(() => import('./pages/PendingPage'));
-const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
-const MessagesPage = lazy(() => import('./pages/MessagesPage'));
-const UserPage = lazy(() => import('./pages/UserPage'));
-const FollowingPage = lazy(() => import('./pages/FollowingPage'));
-const BadgesPage = lazy(() => import('./pages/BadgesPage'));
-const ChatPage = lazy(() => import('./pages/ChatPage'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage'));
+// 预加载 LinuxDo 模块
+const LinuxDoModule = lazy(() => {
+  // 添加预加载提示
+  console.log('🚀 预加载 LinuxDo 模块...');
+  return import('./modules/linuxdo/LinuxDoModule');
+});
+
+// LinuxDo 加载占位组件
+function LinuxDoLoading() {
+  return (
+    <div className="flex items-center justify-center h-full bg-gray-50">
+      <div className="text-center">
+        <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+        <p className="text-gray-600">加载 LinuxDo 模块...</p>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
-  const { user, checking, guest, error, login, browse } = useAuth();
-  const { notify } = useApp();
+  // 处理外部链接
   useEffect(() => {
     const external = event => {
       if (event.defaultPrevented) return;
       const anchor = event.target.closest?.('a[href]');
       if (!anchor || anchor.target !== '_blank' || !/^https?:\/\//i.test(anchor.href)) return;
       event.preventDefault();
-      openUrl(anchor.href).catch(reason => notify(errorText(reason)));
+      openUrl(anchor.href).catch(console.error);
     };
     document.addEventListener('click', external);
     return () => document.removeEventListener('click', external);
-  }, [notify]);
-  if (checking) return <Loading label="正在恢复登录…" />;
-  if (!user && !guest) return <Login onLoginSuccess={login} onBrowse={browse} sessionError={error} />;
-  return <Suspense fallback={<Loading />}><Routes><Route element={<Shell />}>
-    <Route index element={<TopicsPage />} />
-    {['hot', 'top', 'new', 'unread', 'my-topics'].map(feed => <Route key={feed} path={feed} element={<TopicsPage feed={feed} />} />)}
-    <Route path="category/:categoryId" element={<TopicsPage />} />
-    <Route path="tag/:tag" element={<TopicsPage />} />
-    <Route path="topic/:topicId/:postNumber?" element={<TopicPage />} />
-    <Route path="categories" element={<CategoriesPage />} />
-    <Route path="search" element={<SearchPage />} />
-    <Route path="compose" element={<ComposePage />} />
-    <Route path="bookmarks" element={<BookmarksPage />} />
-    <Route path="history" element={<HistoryPage />} />
-    <Route path="drafts" element={<DraftsPage />} />
-    <Route path="pending" element={<PendingPage />} />
-    <Route path="notifications" element={<NotificationsPage />} />
-    <Route path="messages" element={<MessagesPage />} />
-    <Route path="user/:username" element={<UserPage />} />
-    <Route path="following" element={<FollowingPage />} />
-    <Route path="badges/:badgeId?" element={<BadgesPage />} />
-    <Route path="chat/:channelId?" element={<ChatPage />} />
-    <Route path="settings" element={<SettingsPage />} />
-    <Route path="*" element={<Empty title="找不到这个页面"><a className="button primary" href="#/">回到首页</a></Empty>} />
-  </Route></Routes></Suspense>;
+  }, []);
+
+  // 预加载 LinuxDo 模块（应用启动后延迟预加载）
+  useEffect(() => {
+    // 延迟 1 秒后开始预加载，避免影响首屏加载
+    const timer = setTimeout(() => {
+      // 触发 LinuxDo 模块的预加载
+      const preload = import('./modules/linuxdo/LinuxDoModule');
+      preload.then(() => {
+        console.log('✅ LinuxDo 模块预加载完成');
+      }).catch(err => {
+        console.warn('⚠️ LinuxDo 模块预加载失败:', err);
+      });
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <BoardProvider>
+      <AppLayout>
+        <Routes>
+          {/* 默认路由到看板首页 */}
+          <Route index element={<Navigate to="/board" replace />} />
+          
+          {/* 看板模块 */}
+          <Route path="/board" element={<BoardPage />} />
+          
+          {/* LinuxDo 模块 - 使用 Suspense 包裹 */}
+          <Route 
+            path="/linuxdo/*" 
+            element={
+              <Suspense fallback={<LinuxDoLoading />}>
+                <LinuxDoModule />
+              </Suspense>
+            } 
+          />
+        </Routes>
+      </AppLayout>
+    </BoardProvider>
+  );
 }

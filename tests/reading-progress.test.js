@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readingProgress } from '../src/lib/readingProgress.js';
+import { readingProgress } from '../src/modules/linuxdo/lib/readingProgress.js';
 
 test('reading progress follows the furthest visible post', () => {
   assert.deepEqual(readingProgress([17, 18], 22), {

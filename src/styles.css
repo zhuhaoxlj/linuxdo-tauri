@@ -579,3 +579,24 @@ kbd { font-family: inherit; font-size: 0.625rem; border: 1px solid var(--line); 
 @media (max-width: 800px) { .sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 60; width: 220px; transform: translateX(-100%); transition: transform .2s; } .sidebar.open { transform: translateX(0); } .sidebar-scrim { display: block; position: fixed; inset: 0; background: #16284155; z-index: 59; border: 0; } .menu-button { display: inline-flex; flex-shrink: 0; } .topbar { height: 64px; padding: 0 17px; gap: 10px; } .global-search { max-width: none; } .topbar-actions { gap: 5px; } .topbar-actions .compose-shortcut > span { display: none; } .compose-shortcut { padding: 8px 9px; } .page-container { padding: 23px; } .login-art { padding: 35px; } .login-panel { padding: 30px; } .profile-stats { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 580px) { .page-container { padding: 20px 15px; } .page-heading { margin-bottom: 20px; align-items: flex-start; } h1 { font-size: 1.5rem; } .page-heading p { font-size: 0.75rem; } .heading-actions .button { font-size: 0.6875rem; padding: 8px 10px; } .global-search kbd, .topbar-actions > .icon-button:last-child { display: none; } .global-search input { font-size: 0.6875rem; } .topbar { padding: 0 10px; } .topbar-actions > .icon-button, .topbar-actions > a.icon-button { display: none; } .category-grid, .badge-grid, .draft-grid, .people-grid { grid-template-columns: 1fr; } .topic-row { gap: 11px; padding: 18px 0; } .topic-row .secondary-stat, .topic-time { display: none; } .topic-mobile-time { display: inline; } .topic-title { font-size: 0.8125rem; } .tabs { gap: 23px; } .topic-heading h1 { font-size: 1.375rem; } .forum-post { padding: 18px; border-radius: 11px; } .post-header { gap: 9px; } .post-header time { font-size: 0.5625rem; } .post-author > span { max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .post-actions .icon-button { width: 28px; } .post-actions { flex-wrap: wrap; } .composer { padding: 17px; } .form-row { flex-direction: column; gap: 0; } .editor-toolbar { flex-wrap: wrap; } .editor-tools { gap: 0; } .composer-footer { flex-wrap: wrap; justify-content: flex-end; } .composer-footer > span { margin-right: auto; } .markdown-editor { padding: 15px; } .profile-main { padding: 0 20px; flex-wrap: wrap; gap: 10px; } .profile-main > .avatar { width: 68px; height: 68px; } .profile-identity h1 { font-size: 1.3125rem; } .profile-actions { padding-top: 9px; width: 100%; } .profile-description { padding: 18px 20px; } .profile-details { gap: 11px; font-size: 0.625rem; } .profile-title { margin-left: 0; } .chat-layout { grid-template-columns: 115px minmax(0, 1fr); min-height: 450px; } .chat-sidebar { padding: 10px 5px; } .chat-sidebar > .button { font-size: 0.5625rem; padding: 6px 3px; gap: 2px; } .chat-channel { padding: 10px 6px; gap: 5px; font-size: 0.625rem; } .chat-channel svg { width: 13px; } .chat-heading { padding: 14px; } .chat-messages { padding: 15px 10px; } .chat-message { gap: 6px; } .chat-message > a { display: none; } .chat-composer { margin: 0 9px 10px; } .chat-heading h2 { font-size: 0.8125rem; } .settings-section { padding: 21px; } .theme-options { flex-direction: column; gap: 10px; } .theme-option { padding: 14px; } .setting-row { gap: 16px; } .setting-row input[type="range"] { max-width: 125px; } .badge-detail { flex-direction: column; } .login-screen { display: block; overflow-y: auto; } .login-art { min-height: 280px; padding: 26px; } .login-brand { font-size: 1.25rem; } .login-brand img { width: 28px; height: 28px; } .login-intro { margin-top: 30px; } .login-intro .eyebrow, .login-intro > p, .login-values, .login-footnote { display: none; } .login-intro h1 { font-size: 2.0625rem; } .login-panel { padding: 35px 25px; } .login-mark { display: none; } .login-card h2 { font-size: 1.5625rem; } .login-privacy { margin-top: 28px; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+/* 从知识看板进入 LinuxDo 后的返回入口 */
+.back-to-board {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 18px 18px 0;
+  padding: 9px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 550;
+  cursor: pointer;
+}
+.back-to-board:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow);
+}

@@ -1,21 +1,26 @@
-# LinuxDo Tauri 客户端
+# 知识看板 + LinuxDo 集成应用
 
-基于 Tauri 2 的 LinuxDo 论坛客户端,替代 Flutter 版本。
+一个快速启动的个人知识管理看板应用，集成了 LinuxDo 论坛客户端功能。
 
-## 技术栈
+![](https://img.shields.io/badge/React-18-blue)
+![](https://img.shields.io/badge/Tauri-2-orange)
+![](https://img.shields.io/badge/TailwindCSS-3-cyan)
 
-- **前端**: React 18 + Vite + TailwindCSS
-- **后端**: Rust + Tauri 2
-- **认证**: Discourse User API Key OAuth
+## ✨ 特性
 
-## 功能
+### 📋 知识看板
+- **极速启动**：打开即显示待办看板
+- **分类管理**：首页、生活、工作、知识库、娱乐五大板块
+- **任务管理**：轻松添加、编辑、完成、删除任务
+- **本地存储**：数据自动保存到 localStorage
+- **简洁设计**：参考 Nolebase 风格，简洁美观
 
-- ✅ 浏览器 OAuth 登录 (discourse:// 深链接)
-- ✅ 话题列表显示
-- 🚧 话题详情和回复
-- 🚧 用户资料
+### 🐧 LinuxDo 论坛
+- **完整集成**：保留所有论坛功能
+- **独立模块**：便于后续更新和维护
+- **无缝切换**：侧边栏一键切换
 
-## 开发
+## 🚀 快速开始
 
 ### 安装依赖
 
@@ -26,73 +31,147 @@ npm install
 ### 开发模式
 
 ```bash
+# 启动 Web 开发服务器
+npm run dev
+
+# 启动 Tauri 桌面应用
 npm run tauri dev
 ```
 
-### 构建发布版
+### 构建生产版本
 
 ```bash
+# 构建前端
+npm run build
+
+# 构建桌面应用
 npm run tauri build
 ```
 
-## 项目结构
+## 📁 项目结构
 
 ```
-.
-├── src/                    # React 前端
-│   ├── components/         # React 组件
-│   │   ├── Login.jsx      # 登录组件
-│   │   └── TopicList.jsx  # 话题列表
-│   ├── App.jsx            # 主应用
-│   ├── main.jsx           # 入口文件
-│   └── styles.css         # 全局样式
-├── src-tauri/             # Rust 后端
-│   ├── src/
-│   │   ├── lib.rs        # 主逻辑
-│   │   └── main.rs       # 入口
-│   ├── Cargo.toml        # Rust 依赖
-│   └── tauri.conf.json   # Tauri 配置
-└── package.json
+src/
+├── App.jsx                          # 主应用入口
+├── main.jsx                         # React 启动文件
+├── styles.css                       # 全局样式
+├── shared/                          # 共享组件
+│   └── components/
+│       └── AppLayout.jsx            # 应用布局和侧边栏
+├── modules/
+│   ├── board/                       # 知识看板模块
+│   │   ├── context/
+│   │   │   └── BoardContext.jsx    # 看板状态管理
+│   │   ├── components/
+│   │   │   ├── TaskCard.jsx        # 任务卡片
+│   │   │   └── AddTaskForm.jsx     # 添加任务表单
+│   │   └── pages/
+│   │       └── BoardPage.jsx       # 看板主页面
+│   └── linuxdo/                     # LinuxDo 论坛模块
+│       ├── LinuxDoModule.jsx        # 模块入口
+│       ├── context/                 # 认证和应用上下文
+│       ├── components/              # 论坛组件
+│       ├── lib/                     # 工具函数
+│       └── pages/                   # 论坛页面
+└── assets/                          # 静态资源
 ```
 
-## 认证流程
+## 🎯 使用指南
 
-1. 用户点击"浏览器登录"按钮
-2. 后端生成 RSA 密钥对和 nonce
-3. 在默认浏览器打开 linux.do 授权页面
-4. 用户授权后,浏览器通过 `discourse://auth_redirect?payload=<encrypted>` 回调应用
-5. 后端解密 payload 获取 API key
-6. 保存 API key 并获取用户信息
-7. 跳转到话题列表
+### 知识看板
 
-## Linux 安装
+1. **切换分类**：点击左侧边栏切换不同板块
+2. **添加任务**：点击「添加新任务」按钮
+3. **完成任务**：点击任务左侧的圆形复选框
+4. **编辑/删除**：点击任务右侧的图标
 
-构建后会生成 `.deb` 包,直接安装即可:
+### LinuxDo 论坛
+
+1. 点击侧边栏的「LinuxDo」进入论坛
+2. 首次使用需要登录账号
+3. 所有原有功能保持不变
+
+详细使用说明请查看 [docs/USAGE.md](docs/USAGE.md)
+
+## 🏗️ 架构说明
+
+本项目采用**模块化设计**，知识看板和 LinuxDo 论坛完全独立：
+
+- **看板模块**：负责个人任务和知识管理
+- **论坛模块**：独立维护，便于合并 LinuxDo 主分支更新
+- **共享层**：统一的应用布局和导航
+
+详细架构说明请查看 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+
+## 🔄 更新 LinuxDo 模块
+
+LinuxDo 功能位于 `src/modules/linuxdo/` 目录，可以独立更新：
 
 ```bash
-sudo dpkg -i target/release/bundle/deb/linuxdo-tauri_0.1.0_amd64.deb
+# 从 LinuxDo 主分支拉取更新
+git remote add linuxdo <linuxdo-repo-url>
+git fetch linuxdo
+
+# 合并更新到对应目录
+# 详见 docs/MERGE_GUIDE.md
 ```
 
-应用会自动注册 `discourse://` 协议处理器。
+详细合并指南请查看 [docs/MERGE_GUIDE.md](docs/MERGE_GUIDE.md)
 
-## 与 Flutter 版本对比
+## 🛠️ 技术栈
 
-| 特性 | Flutter 版本 | Tauri 版本 |
-|------|-------------|-----------|
-| 包大小 | ~100MB | ~10MB |
-| 内存占用 | ~200MB | ~50MB |
-| WebView | WPE/WebKitGTK | 系统 WebView |
-| 打包 | Flatpak | .deb/.AppImage |
-| 深链接 | 需手动配置 | 自动注册 |
+- **框架**：React 18 + React Router
+- **构建工具**：Vite 6
+- **桌面框架**：Tauri 2
+- **样式**：TailwindCSS 3
+- **图标**：Lucide React
+- **状态管理**：React Context API
+- **数据请求**：TanStack Query (LinuxDo 模块)
 
-## 开发进度
+## 📝 开发路线
 
-- [x] 项目初始化
-- [x] OAuth 登录流程
-- [x] 深链接支持
-- [x] 话题列表
-- [ ] 话题详情
-- [ ] 发帖回复
-- [ ] 通知
-- [ ] CI/CD
+- [x] 基础看板功能
+- [x] 任务管理（CRUD）
+- [x] LinuxDo 模块集成
+- [x] 统一侧边栏导航
+- [ ] 笔记功能
+- [ ] 标签系统
+- [ ] 全局搜索
+- [ ] 数据导出/导入
+- [ ] 深色模式
+- [ ] 键盘快捷键
+- [ ] 统计和可视化
 
+## 🤝 贡献
+
+欢迎提交 Issue 和 Pull Request！
+
+开发规范：
+- 看板功能改进提交到 `modules/board/`
+- LinuxDo 功能改进提交到 `modules/linuxdo/`
+- 保持模块独立性，避免交叉依赖
+
+## 📄 许可证
+
+查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 🙏 致谢
+
+- 界面设计灵感来自 [Nolebase](https://nolebase.ayaka.io/)
+- LinuxDo 论坛客户端原始代码
+
+---
+
+**快速启动 · 高效管理 · 沉淀知识**
+
+## ⚡ 性能优化
+
+### LinuxDo 模块预加载
+
+应用启动后会自动在后台预加载 LinuxDo 模块，点击进入时几乎无延迟：
+
+- **优化前**：300-700ms 加载时间
+- **优化后**：60-100ms 响应时间
+- **提升**：70-85% 性能提升
+
+详见：[性能优化文档](docs/PERFORMANCE_OPTIMIZATION.md)

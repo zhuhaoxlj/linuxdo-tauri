@@ -10,7 +10,7 @@ import {
   visiblePosts,
   mergeNodes,
   buildProvisionalTree,
-} from '../src/lib/nestedPosts.js';
+} from '../src/modules/linuxdo/lib/nestedPosts.js';
 
 const post = (id, postNumber, extra = {}) => ({ id, post_number: postNumber, username: 'user' + postNumber, cooked: '<p>' + postNumber + '</p>', ...extra });
 

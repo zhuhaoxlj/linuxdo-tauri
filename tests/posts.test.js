@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mergePosts, postPayload, submittedPost, uploadMarkdown, topicFilterParams } from '../src/lib/posts.js';
+import { mergePosts, postPayload, submittedPost, uploadMarkdown, topicFilterParams } from '../src/modules/linuxdo/lib/posts.js';
 
 test('new topics, replies, edits and private messages use their own server contracts', () => {
   assert.deepEqual(postPayload({ kind: 'topic', title: ' Test ', raw: ' Text ', categoryId: '6', tags: 'rust，tauri rust' }),
