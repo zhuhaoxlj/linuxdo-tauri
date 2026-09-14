@@ -31,36 +31,33 @@ export default function AppLayout({ children }) {
   }
 
   return (
-    <div className={`app-shell board-shell flex h-screen bg-gray-50${isKnowledgeActive ? ' has-knowledge' : ''}`}>
+    <div className={`app-shell board-shell${isKnowledgeActive ? ' has-knowledge' : ''}`}>
       {/* 侧边栏 */}
-      <aside className="app-sidebar w-64 bg-white border-r border-gray-200 flex flex-col">
+      <aside className="app-sidebar">
         {/* Logo 区域 */}
-        <div className="app-brand p-6 border-b border-gray-200">
+        <div className="app-brand">
           <span className="app-brand-mark" aria-hidden="true">知</span>
-          <h1 className="text-xl font-bold text-gray-900">知识看板</h1>
-          <p className="text-sm text-gray-500 mt-1">个人知识管理系统</p>
+          <h1>知识看板</h1>
+          <p>个人知识管理系统</p>
         </div>
 
         {/* 导航菜单 */}
-        <nav className="app-navigation flex-1 overflow-y-auto p-4" aria-label="应用导航">
-          <div className="space-y-1">
+        <nav className="app-navigation" aria-label="应用导航">
+          <div className="app-nav-list">
             {categories.map(category => (
               <button
                 key={category.id}
+                type="button"
                 title={category.name}
                 aria-current={currentActive === category.id ? 'page' : undefined}
                 onClick={() => handleCategoryClick(category.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
-                  currentActive === category.id
-                    ? 'bg-gradient-to-r from-indigo-50 to-purple-50 text-indigo-700 font-medium shadow-sm'
-                    : 'text-gray-700 hover:bg-gray-100'
-                }`}
+                className="app-nav-item"
               >
-                <span className="text-xl">{category.icon}</span>
-                <span className="flex-1 text-left">{category.name}</span>
+                <span className="app-nav-icon">{category.icon}</span>
+                <span className="app-nav-label">{category.name}</span>
                 {currentActive === category.id && (
-                  <div 
-                    className="w-1 h-6 rounded-full" 
+                  <div
+                    className="app-nav-marker"
                     style={{ backgroundColor: category.color }}
                   />
                 )}
@@ -70,13 +67,13 @@ export default function AppLayout({ children }) {
         </nav>
 
         {/* 底部信息 */}
-        <div className="app-sidebar-footer p-4 border-t border-gray-200 text-xs text-gray-500">
+        <div className="app-sidebar-footer">
           <p>快速启动 · 高效管理</p>
         </div>
       </aside>
 
       {/* 主内容区 */}
-      <main className="flex-1 min-w-0 overflow-hidden">
+      <main className="app-main">
         {children}
       </main>
     </div>
