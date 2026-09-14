@@ -74,3 +74,16 @@
 }
 .app-shell .app-sidebar-footer p { margin: 0; }
 .app-shell :focus-visible { outline: 2px solid #4974bb; outline-offset: 3px; }
+
+@media (max-width: 640px) {
+  .app-shell > .app-sidebar { width: 72px; flex-basis: 72px; }
+  .app-shell .app-brand { min-height: 74px; display: grid; place-items: center; padding: 12px; }
+  .app-shell .app-brand h1, .app-shell .app-brand p { display: none; }
+  .app-brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid #cad7e9; color: #345e9f; font-weight: 700; }
+  .app-shell .app-navigation { padding: 12px 8px; }
+  .app-nav-item { position: relative; min-height: 48px; justify-content: center; gap: 0; padding: 8px; }
+  .app-nav-icon { font-size: 20px; }
+  .app-nav-label { display: none; }
+  .app-nav-marker { position: absolute; right: 4px; }
+  .app-shell .app-sidebar-footer { display: none; }
+}

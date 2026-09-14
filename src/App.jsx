@@ -8,6 +8,7 @@ import AppLayout from './shared/components/AppLayout';
 import BoardPage from './modules/board/pages/BoardPage';
 
 const KnowledgePage = lazy(() => import('./modules/knowledge/pages/KnowledgePage'));
+const SyncPage = lazy(() => import('./modules/sync/pages/SyncPage'));
 
 // 预加载 LinuxDo 模块
 const LinuxDoModule = lazy(() => import('./modules/linuxdo/LinuxDoModule'));
@@ -77,6 +78,11 @@ export default function App() {
           <Route path="/knowledge/:noteId?" element={
             <Suspense fallback={<div className="p-8" role="status">正在打开知识库…</div>}>
               <KnowledgePage />
+            </Suspense>
+          } />
+          <Route path="/sync" element={
+            <Suspense fallback={<div className="p-8" role="status">正在打开同步配对…</div>}>
+              <SyncPage />
             </Suspense>
           } />
           

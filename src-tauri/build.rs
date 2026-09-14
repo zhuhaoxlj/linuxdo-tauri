@@ -11,7 +11,6 @@ fn main() {
             "upload_file",
             "site_ready",
             "site_response",
-            "open_synced_workspace",
         ]),
     ))
     .expect("failed to build Tauri application");

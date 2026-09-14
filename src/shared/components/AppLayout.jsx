@@ -3,27 +3,17 @@ import '../../modules/board/board.css';
 import '../app-shell.css';
 import { useBoard } from '../../modules/board/context/BoardContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { invoke, isTauri } from '@tauri-apps/api/core';
-import { legacyWorkspacePayload } from '../../modules/board/lib/legacyWorkspace';
 
 export default function AppLayout({ children }) {
-  const { categories, activeCategory, setActiveCategory, tasks, notes } = useBoard();
+  const { categories, activeCategory, setActiveCategory } = useBoard();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const handleCategoryClick = async (categoryId) => {
+  const handleCategoryClick = (categoryId) => {
     if (categoryId === 'linuxdo') {
       navigate('/linuxdo');
     } else if (categoryId === 'sync') {
-      try {
-        if (isTauri()) {
-          await invoke('open_synced_workspace', { legacyData: legacyWorkspacePayload(tasks, notes) });
-        } else {
-          window.open('https://mast.lindum.top/a/notes-sync/app/', '_blank', 'noopener,noreferrer');
-        }
-      } catch (error) {
-        console.error('Failed to open synced workspace:', error);
-      }
+      navigate('/sync');
     } else if (categoryId === 'knowledge') {
       setActiveCategory(categoryId);
       navigate('/knowledge');
@@ -35,7 +25,8 @@ export default function AppLayout({ children }) {
 
   const isLinuxDoActive = location.pathname.startsWith('/linuxdo');
   const isKnowledgeActive = location.pathname.startsWith('/knowledge');
-  const currentActive = isLinuxDoActive ? 'linuxdo' : isKnowledgeActive ? 'knowledge' : activeCategory;
+  const isSyncActive = location.pathname.startsWith('/sync');
+  const currentActive = isLinuxDoActive ? 'linuxdo' : isKnowledgeActive ? 'knowledge' : isSyncActive ? 'sync' : activeCategory;
 
   // 如果在 LinuxDo 模块内，不显示外层侧边栏，让 LinuxDo 使用自己的布局
   if (isLinuxDoActive) {
@@ -62,7 +53,7 @@ export default function AppLayout({ children }) {
                 type="button"
                 title={category.name}
                 aria-current={currentActive === category.id ? 'page' : undefined}
-                onClick={() => { void handleCategoryClick(category.id); }}
+                onClick={() => handleCategoryClick(category.id)}
                 className="app-nav-item"
               >
                 <span className="app-nav-icon">{category.icon}</span>

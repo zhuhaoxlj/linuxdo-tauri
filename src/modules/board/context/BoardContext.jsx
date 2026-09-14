@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { clearVault, loadVault } from '../../sync/database';
+import { hydrateCardImages, queueRecord, queueWorkspaceSnapshot, synchronize } from '../../sync/engine';
+import { listDevices, revokeDevice } from '../../sync/api';
+import { approvePairingCode, claimPairingSession, createPairingSession } from '../../sync/vault';
+import { detachWorkspace, mergeWorkspace, noteToRecord, taskToRecord } from '../../sync/workspace';
+import { acknowledgedDirtyIds } from '../../sync/pending';
 
 const BoardContext = createContext();
 
@@ -7,7 +13,7 @@ const DEFAULT_CATEGORIES = [
   { id: 'life', name: '生活', icon: '🌟', color: '#10b981' },
   { id: 'work', name: '工作', icon: '💼', color: '#f59e0b' },
   { id: 'knowledge', name: '知识库', icon: '📚', color: '#8b5cf6' },
-  { id: 'sync', name: '同步空间', icon: '☁️', color: '#4974bb' },
+  { id: 'sync', name: '同步配对', icon: '☁️', color: '#4974bb' },
   { id: 'entertainment', name: '娱乐', icon: '🎮', color: '#ec4899' },
   { id: 'linuxdo', name: 'LinuxDo', icon: '🐧', color: '#06b6d4' }
 ];
@@ -38,9 +44,27 @@ export function BoardProvider({ children }) {
   const [activeCategory, setActiveCategory] = useState('home');
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState([]);
+  const [tombstones, setTombstones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [storageReady, setStorageReady] = useState(false);
   const [storageError, setStorageError] = useState('');
+  const [syncConfig, setSyncConfig] = useState();
+  const [syncStatus, setSyncStatus] = useState('loading');
+  const [syncError, setSyncError] = useState('');
+  const [lastSyncedAt, setLastSyncedAt] = useState(0);
+  const [pairing, setPairing] = useState();
+  const [pairedDevices, setPairedDevices] = useState([]);
+  const workspaceRef = useRef({ tasks: [], notes: [], tombstones: [] });
+  const syncLock = useRef(false);
+  const syncTimer = useRef();
+  const queueChains = useRef(new Map());
+  const syncTask = useRef(Promise.resolve());
+  const syncGeneration = useRef(0);
+  const disconnecting = useRef(false);
+  const dirtySyncRevisions = useRef(new Map());
+  const queuedSyncRevisions = useRef(new Map());
+  const failedSyncRevisions = useRef(new Map());
+  const syncRevision = useRef(0);
 
   useEffect(() => {
     try {
@@ -50,8 +74,15 @@ export function BoardProvider({ children }) {
         if (!Array.isArray(data.tasks || []) || !Array.isArray(data.notes || [])) {
           throw new Error('Invalid board data');
         }
-        setTasks((data.tasks || []).map(withColumn));
-        setNotes(data.notes || []);
+        const restored = {
+          tasks: (data.tasks || []).map(withColumn),
+          notes: data.notes || [],
+          tombstones: Array.isArray(data.tombstones) ? data.tombstones : [],
+        };
+        workspaceRef.current = restored;
+        setTasks(restored.tasks);
+        setNotes(restored.notes);
+        setTombstones(restored.tombstones);
         setActiveCategory(data.activeCategory || 'home');
       }
       setStorageReady(true);
@@ -69,6 +100,7 @@ export function BoardProvider({ children }) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
           tasks,
           notes,
+          tombstones,
           activeCategory
         }));
         setStorageError('');
@@ -77,65 +109,275 @@ export function BoardProvider({ children }) {
         setStorageError('未能保存到本地，可能是存储空间不足。请先复制正在编辑的 Markdown，避免内容丢失。');
       }
     }
-  }, [tasks, notes, activeCategory, loading, storageReady]);
+  }, [tasks, notes, tombstones, activeCategory, loading, storageReady]);
+
+  useEffect(() => {
+    workspaceRef.current = { tasks, notes, tombstones };
+  }, [tasks, notes, tombstones]);
+
+  useEffect(() => {
+    loadVault()
+      .then(config => {
+        setSyncConfig(config);
+        setSyncStatus(config ? 'pending' : 'unpaired');
+      })
+      .catch(error => {
+        console.error('Failed to load sync vault:', error);
+        setSyncStatus('error');
+        setSyncError('同步密钥读取失败，请重新配对。');
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!storageReady || !syncConfig) return undefined;
+    void performSync(syncConfig, true);
+    const interval = setInterval(() => void performSync(undefined, false), 15_000);
+    return () => clearInterval(interval);
+  }, [storageReady, syncConfig?.vaultId, syncConfig?.deviceId]);
+
+  useEffect(() => {
+    if (!pairing) return undefined;
+    let cancelled = false;
+    const poll = async () => {
+      if (Math.floor(Date.now() / 1000) >= pairing.expiresAt) {
+        setPairing(undefined);
+        setSyncStatus('unpaired');
+        setSyncError('配对请求已过期，请重新生成。');
+        return;
+      }
+      try {
+        const config = await claimPairingSession(pairing);
+        if (!config || cancelled) return;
+        setPairing(undefined);
+        setSyncConfig(config);
+        setSyncStatus('pending');
+        setSyncError('');
+      } catch (error) {
+        if (!cancelled) setSyncError(error.message || '配对状态检查失败。');
+      }
+    };
+    void poll();
+    const interval = setInterval(poll, 2_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [pairing]);
+
+  async function performSync(configOverride, importLocal = false) {
+    const config = configOverride || syncConfig;
+    if (!config || disconnecting.current) return;
+    if (syncLock.current) return syncTask.current;
+    const generation = syncGeneration.current;
+    const queuedAtStart = new Map(queuedSyncRevisions.current);
+    syncLock.current = true;
+    setSyncStatus('syncing');
+    setSyncError('');
+    const task = (async () => {
+      let result = await synchronize(config);
+      if (importLocal && await queueWorkspaceSnapshot(result.config, workspaceRef.current, result.records)) {
+        result = await synchronize(result.config);
+      }
+      const imageMap = await hydrateCardImages(result.config, result.records);
+      for (const id of acknowledgedDirtyIds(dirtySyncRevisions.current, queuedSyncRevisions.current, queuedAtStart, failedSyncRevisions.current, result.pendingIds)) {
+        dirtySyncRevisions.current.delete(id);
+        queuedSyncRevisions.current.delete(id);
+      }
+      const protectedIds = new Set([...result.pendingIds, ...dirtySyncRevisions.current.keys()]);
+      const merged = mergeWorkspace(workspaceRef.current, result.records, imageMap, protectedIds);
+      if (generation !== syncGeneration.current || disconnecting.current) return;
+      workspaceRef.current = merged;
+      setTasks(merged.tasks.map(withColumn));
+      setNotes(merged.notes);
+      setTombstones(merged.tombstones);
+      setSyncConfig(result.config);
+      setSyncStatus(result.pending ? 'pending' : 'synced');
+      setLastSyncedAt(Date.now());
+      if (result.pending) scheduleSync(generation);
+    })().catch(error => {
+      if (generation !== syncGeneration.current || disconnecting.current) return;
+      console.error('Workspace sync failed:', error);
+      setSyncStatus(error?.status === 401 ? 'revoked' : navigator.onLine ? 'error' : 'offline');
+      setSyncError(error.message || '同步失败，请稍后重试。');
+    });
+    syncTask.current = task;
+    await task;
+    if (syncTask.current === task) syncLock.current = false;
+  }
+
+  function scheduleSync(generation) {
+    if (generation !== syncGeneration.current || disconnecting.current) return;
+    clearTimeout(syncTimer.current);
+    syncTimer.current = setTimeout(() => void performSync(undefined, false), 700);
+  }
+
+  function queueLocal(record, images) {
+    if (!syncConfig || disconnecting.current) return;
+    const generation = syncGeneration.current;
+    const revision = ++syncRevision.current;
+    dirtySyncRevisions.current.set(record.id, revision);
+    setSyncStatus('pending');
+    const previous = queueChains.current.get(record.id) || Promise.resolve();
+    const current = previous.catch(() => undefined).then(() => {
+      if (generation !== syncGeneration.current || disconnecting.current) return;
+      return queueRecord(syncConfig, record, images).then(() => {
+        queuedSyncRevisions.current.set(record.id, revision);
+        if ((failedSyncRevisions.current.get(record.id) || 0) <= revision) failedSyncRevisions.current.delete(record.id);
+      });
+    }).then(() => scheduleSync(generation)).catch(error => {
+      if (generation !== syncGeneration.current || disconnecting.current) return;
+      failedSyncRevisions.current.set(record.id, revision);
+      console.error('Failed to queue workspace item:', error);
+      setSyncStatus('error');
+      setSyncError(error.message || '本地变更未能加入同步队列。');
+    });
+    queueChains.current.set(record.id, current);
+    current.then(() => {
+      if (queueChains.current.get(record.id) === current) queueChains.current.delete(record.id);
+    });
+  }
 
   const addTask = (task) => {
     const column = task.column || 'inbox';
-    setTasks(prev => [...prev, withColumn({
+    const created = withColumn({
       id: Date.now().toString(),
       createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       ...task,
       column,
       images: task.images || [],
       completed: column === 'done',
-    })]);
+    });
+    const nextTasks = [...workspaceRef.current.tasks, created];
+    workspaceRef.current = { ...workspaceRef.current, tasks: nextTasks };
+    setTasks(nextTasks);
+    queueLocal(taskToRecord(created), created.images);
   };
 
   const updateTask = (id, updates) => {
-    setTasks(prev => prev.map(task => {
-      if (task.id !== id) return task;
-      const next = withColumn({ ...task, ...updates, updatedAt: new Date().toISOString() });
-      return { ...next, completed: next.column === 'done' };
-    }));
+    const current = workspaceRef.current.tasks.find(task => task.id === id);
+    if (!current) return;
+    const next = withColumn({ ...current, ...updates, updatedAt: new Date().toISOString() });
+    const saved = { ...next, completed: next.column === 'done' };
+    const nextTasks = workspaceRef.current.tasks.map(task => task.id === id ? saved : task);
+    workspaceRef.current = { ...workspaceRef.current, tasks: nextTasks };
+    setTasks(nextTasks);
+    queueLocal(taskToRecord(saved), saved.images);
   };
 
   const deleteTask = (id) => {
-    setTasks(prev => prev.filter(task => task.id !== id));
+    const current = workspaceRef.current.tasks.find(task => task.id === id);
+    if (!current) return;
+    const deletedAt = Date.now();
+    const tombstone = taskToRecord(current, { trashedAt: deletedAt, updatedAt: deletedAt, syncState: 'pending' });
+    const nextTasks = workspaceRef.current.tasks.filter(task => task.id !== id);
+    const nextTombstones = [...workspaceRef.current.tombstones.filter(item => item.id !== tombstone.id), tombstone];
+    workspaceRef.current = { ...workspaceRef.current, tasks: nextTasks, tombstones: nextTombstones };
+    setTasks(nextTasks);
+    setTombstones(nextTombstones);
+    queueLocal(tombstone);
   };
 
   const toggleTask = (id) => {
-    setTasks(prev => prev.map(task => {
-      if (task.id !== id) return task;
-      const column = task.column === 'done' ? 'inbox' : 'done';
-      return { ...task, column, completed: column === 'done', updatedAt: new Date().toISOString() };
-    }));
+    const current = workspaceRef.current.tasks.find(task => task.id === id);
+    if (!current) return;
+    const column = current.column === 'done' ? 'inbox' : 'done';
+    updateTask(id, { column, completed: column === 'done' });
   };
 
   const moveTask = (id, column, beforeId) => {
-    setTasks(prev => {
-      const current = prev.find(task => task.id === id);
-      if (!current) return prev;
-      const rest = prev.filter(task => task.id !== id);
-      const moved = withColumn({ ...current, column, completed: column === 'done', updatedAt: new Date().toISOString() });
-      return insertTask(rest, moved, beforeId);
-    });
+    const current = workspaceRef.current.tasks.find(task => task.id === id);
+    if (!current) return;
+    const moved = withColumn({ ...current, column, completed: column === 'done', updatedAt: new Date().toISOString() });
+    const nextTasks = insertTask(workspaceRef.current.tasks.filter(task => task.id !== id), moved, beforeId);
+    workspaceRef.current = { ...workspaceRef.current, tasks: nextTasks };
+    setTasks(nextTasks);
+    queueLocal(taskToRecord(moved), moved.images);
   };
 
   const addNote = (note) => {
     const timestamp = new Date().toISOString();
     const created = { ...note, id: crypto.randomUUID(), createdAt: timestamp, updatedAt: timestamp };
-    setNotes(prev => [...prev, created]);
+    const nextNotes = [...workspaceRef.current.notes, created];
+    workspaceRef.current = { ...workspaceRef.current, notes: nextNotes };
+    setNotes(nextNotes);
+    queueLocal(noteToRecord(created));
     return created;
   };
 
   const updateNote = (id, updates) => {
-    setNotes(prev => prev.map(note =>
-      note.id === id ? { ...note, ...updates, updatedAt: new Date().toISOString() } : note
-    ));
+    const current = workspaceRef.current.notes.find(note => note.id === id);
+    if (!current) return;
+    const updated = { ...current, ...updates, updatedAt: new Date().toISOString() };
+    const nextNotes = workspaceRef.current.notes.map(note => note.id === id ? updated : note);
+    workspaceRef.current = { ...workspaceRef.current, notes: nextNotes };
+    setNotes(nextNotes);
+    queueLocal(noteToRecord(updated));
   };
 
   const deleteNote = (id) => {
-    setNotes(prev => prev.filter(note => note.id !== id));
+    const current = workspaceRef.current.notes.find(note => note.id === id);
+    if (!current) return;
+    const deletedAt = Date.now();
+    const tombstone = noteToRecord(current, { trashedAt: deletedAt, updatedAt: deletedAt, syncState: 'pending' });
+    const nextNotes = workspaceRef.current.notes.filter(note => note.id !== id);
+    const nextTombstones = [...workspaceRef.current.tombstones.filter(item => item.id !== tombstone.id), tombstone];
+    workspaceRef.current = { ...workspaceRef.current, notes: nextNotes, tombstones: nextTombstones };
+    setNotes(nextNotes);
+    setTombstones(nextTombstones);
+    queueLocal(tombstone);
+  };
+
+  const beginPairing = async name => {
+    if (disconnecting.current) return;
+    setSyncStatus('pairing');
+    setSyncError('');
+    try {
+      setPairing(await createPairingSession(name.trim() || 'LinuxDo Desktop'));
+    } catch (error) {
+      setSyncStatus('unpaired');
+      setSyncError(error.message || '无法创建配对请求。');
+    }
+  };
+
+  const cancelPairing = () => { setPairing(undefined); setSyncStatus('unpaired'); setSyncError(''); };
+  const approvePairing = async code => { await approvePairingCode(syncConfig, code); };
+  const refreshDevices = async () => {
+    if (!syncConfig) return [];
+    const devices = await listDevices(syncConfig.deviceToken);
+    setPairedDevices(devices);
+    return devices;
+  };
+  const removeDevice = async deviceId => { await revokeDevice(syncConfig.deviceToken, deviceId); await refreshDevices(); };
+  const disconnectSync = async () => {
+    if (disconnecting.current) return;
+    disconnecting.current = true;
+    syncGeneration.current += 1;
+    clearTimeout(syncTimer.current);
+    setSyncStatus('disconnecting');
+    setSyncError('');
+    setPairing(undefined);
+    try {
+      await Promise.allSettled([syncTask.current, ...queueChains.current.values()]);
+      clearTimeout(syncTimer.current);
+      queueChains.current.clear();
+      dirtySyncRevisions.current.clear();
+      queuedSyncRevisions.current.clear();
+      failedSyncRevisions.current.clear();
+      await clearVault();
+      const detached = detachWorkspace(workspaceRef.current);
+      workspaceRef.current = detached;
+      setTasks(detached.tasks);
+      setNotes(detached.notes);
+      setTombstones([]);
+      setSyncConfig(undefined);
+      setPairedDevices([]);
+      setSyncStatus('unpaired');
+      setLastSyncedAt(0);
+    } catch (error) {
+      console.error('Failed to disconnect workspace sync:', error);
+      setSyncStatus('error');
+      setSyncError(error.message || '断开同步失败，请重试。');
+    } finally {
+      disconnecting.current = false;
+    }
   };
 
   const value = {
@@ -155,6 +397,19 @@ export function BoardProvider({ children }) {
     loading,
     storageError,
     storageReady,
+    syncConfig,
+    syncStatus,
+    syncError,
+    lastSyncedAt,
+    pairing,
+    pairedDevices,
+    beginPairing,
+    cancelPairing,
+    approvePairing,
+    refreshDevices,
+    removeDevice,
+    disconnectSync,
+    syncNow: () => performSync(undefined, true),
   };
 
   return (
