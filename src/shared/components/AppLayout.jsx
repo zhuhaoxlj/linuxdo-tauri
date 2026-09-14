@@ -1,5 +1,6 @@
 import React from 'react';
 import '../../modules/board/board.css';
+import '../app-shell.css';
 import { useBoard } from '../../modules/board/context/BoardContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -30,12 +31,12 @@ export default function AppLayout({ children }) {
   }
 
   return (
-    <div className={`board-shell flex h-screen bg-gray-50${isKnowledgeActive ? ' has-knowledge' : ''}`}>
+    <div className={`app-shell board-shell flex h-screen bg-gray-50${isKnowledgeActive ? ' has-knowledge' : ''}`}>
       {/* 侧边栏 */}
       <aside className="app-sidebar w-64 bg-white border-r border-gray-200 flex flex-col">
         {/* Logo 区域 */}
         <div className="app-brand p-6 border-b border-gray-200">
-          {isKnowledgeActive && <span className="app-brand-mark" aria-hidden="true">知</span>}
+          <span className="app-brand-mark" aria-hidden="true">知</span>
           <h1 className="text-xl font-bold text-gray-900">知识看板</h1>
           <p className="text-sm text-gray-500 mt-1">个人知识管理系统</p>
         </div>

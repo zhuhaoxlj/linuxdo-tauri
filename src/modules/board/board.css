@@ -11,8 +11,8 @@
   font: inherit;
   color: inherit;
   background: #fff;
-  border: 1px solid #d8dee8;
-  border-radius: 10px;
+  border: 1px solid #dfe6de;
+  border-radius: 7px;
   padding: 8px 10px;
 }
 
@@ -20,25 +20,28 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: #f4f5f7;
+  background: #fbfcfa;
   min-width: 0;
 }
 .kanban-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 16px 20px 8px;
+  min-height: 72px;
+  padding: 15px 27px;
   flex-shrink: 0;
+  background: #fff;
+  border-bottom: 1px solid #e8ece7;
 }
-.kanban-toolbar-icon { font-size: 1.35rem; line-height: 1; }
-.kanban-toolbar h1 { font-size: 1.125rem; color: #1f2937; }
+.kanban-toolbar-icon { font-size: 1.35rem; line-height: 1; filter: saturate(.7); }
+.kanban-toolbar h1 { font-size: 1.0625rem; font-weight: 650; letter-spacing: .5px; color: #303a33; }
 .kanban-columns {
   flex: 1;
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 16px;
   overflow-x: auto;
-  padding: 8px 20px 20px;
+  padding: 18px 27px 24px;
   min-height: 0;
 }
 .kanban-column {
@@ -48,31 +51,31 @@
   flex-direction: column;
   min-height: 0;
   max-height: 100%;
-  background: #eceff3;
-  border: 1px solid #e3e7ee;
-  border-radius: 16px;
+  background: #f8faf7;
+  border: 1px solid #e8ece7;
+  border-radius: 12px;
   padding: 8px;
 }
-.kanban-column.drop-target { outline: 2px dashed #8b9bb4; outline-offset: -2px; }
+.kanban-column.drop-target { outline: 2px dashed #a9bfa6; outline-offset: -2px; }
 .kanban-column.collapsed { flex: 0 0 52px; width: 52px; }
 .kanban-column-header {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 6px 6px 10px;
-  color: #4b5563;
+  color: #6e7a62;
 }
-.kanban-column-grip { color: #9aa3b2; display: inline-flex; }
+.kanban-column-grip { color: #9ca695; display: inline-flex; }
 .kanban-column-header h2 {
   flex: 1;
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   font-weight: 650;
-  color: #374151;
+  color: #3d4a3f;
 }
 .kanban-column-header b {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #6b7280;
+  color: #8b9986;
   min-width: 1.1rem;
   text-align: center;
 }
@@ -92,10 +95,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
-  color: #6b7280;
+  border-radius: 7px;
+  color: #869087;
 }
-.kanban-icon-button:hover { background: #e5e9f0; color: #111827; }
+.kanban-icon-button:hover { background: #eef2ec; color: #33624b; }
 .chevron-collapsed { transform: rotate(-90deg); }
 .kanban-cards {
   display: flex;
@@ -108,36 +111,38 @@
 .kanban-card {
   position: relative;
   background: #fff;
-  border-radius: 12px;
+  border: 1px solid #ecefe9;
+  border-radius: 10px;
   padding: 12px 34px 12px 14px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .06);
+  box-shadow: 0 1px 2px rgba(48, 58, 51, .05);
   cursor: grab;
 }
+.kanban-card:hover { border-color: #d7e2d5; }
 .kanban-card:active { cursor: grabbing; }
 .kanban-pin-badge {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-bottom: 6px;
-  color: #4974bb;
+  color: #47785b;
   font-size: 0.6875rem;
   line-height: 1.4;
 }
-.kanban-card .kanban-copy-status { margin-top: 6px; font-size: 0.75rem; color: #4974bb; }
-.kanban-copy-status.is-error { color: #b91c1c; }
+.kanban-card .kanban-copy-status { margin-top: 6px; font-size: 0.75rem; color: #47785b; }
+.kanban-copy-status.is-error { color: #b94c47; }
 .kanban-card-title {
   font-size: 0.875rem;
-  line-height: 1.45;
-  color: #1f2937;
+  line-height: 1.55;
+  color: #303a33;
   word-break: break-word;
 }
 .kanban-card-link {
-  color: #2563eb;
+  color: #33704f;
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
 }
-.kanban-card-link:hover { color: #1d4ed8; }
+.kanban-card-link:hover { color: #25523a; }
 .kanban-card-menu { position: absolute; top: 6px; right: 6px; }
 .kanban-card-editor {
   width: 100%;
@@ -150,9 +155,9 @@
   z-index: 80;
   min-width: 132px;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, .12);
+  border: 1px solid #e8ece7;
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgba(48, 58, 51, .12);
   padding: 4px;
 }
 .kanban-menu button {
@@ -161,12 +166,12 @@
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 6px;
   font-size: 0.8125rem;
-  color: #374151;
+  color: #3d4a3f;
 }
-.kanban-menu button:hover { background: #f3f4f6; }
-.kanban-menu button.danger { color: #b91c1c; }
+.kanban-menu button:hover { background: #f0f4ed; }
+.kanban-menu button.danger { color: #b94c47; }
 .kanban-add-button {
   display: flex;
   align-items: center;
@@ -174,11 +179,11 @@
   gap: 6px;
   margin-top: auto;
   padding: 10px;
-  border-radius: 12px;
-  color: #6b7280;
+  border-radius: 8px;
+  color: #6e7a62;
   font-size: 0.8125rem;
 }
-.kanban-add-button:hover { background: #e5e9f0; color: #111827; }
+.kanban-add-button:hover { background: #eef2ec; color: #33624b; }
 .kanban-add-form {
   margin-top: auto;
   display: flex;
@@ -194,17 +199,17 @@
 .kanban-add-actions { display: flex; align-items: center; gap: 6px; }
 .kanban-add-confirm {
   padding: 7px 12px;
-  border-radius: 9px;
-  background: #4f46e5;
+  border-radius: 7px;
+  background: #47785b;
   color: #fff;
   font-size: 0.8125rem;
   font-weight: 600;
 }
-.kanban-add-confirm:hover { background: #4338ca; }
+.kanban-add-confirm:hover { background: #376348; }
 .kanban-shortcut {
   margin-left: 4px;
   font-size: 0.6875rem;
-  color: #9ca3af;
+  color: #9ba594;
 }
 
 .kanban-image-row {
@@ -217,9 +222,9 @@
   position: relative;
   width: 72px;
   height: 72px;
-  border-radius: 8px;
+  border-radius: 7px;
   overflow: hidden;
-  background: #e5e7eb;
+  background: #eef2ec;
 }
 .kanban-image-thumb img {
   width: 100%;
@@ -245,7 +250,7 @@
 .kanban-paste-error {
   margin: 0;
   font-size: 0.75rem;
-  color: #b91c1c;
+  color: #b94c47;
 }
 
 .kanban-image-open {
@@ -256,7 +261,7 @@
   cursor: zoom-in;
 }
 .kanban-image-open:focus-visible {
-  outline: 2px solid #4974bb;
+  outline: 2px solid #47785b;
   outline-offset: -3px;
 }
 .kanban-image-preview {

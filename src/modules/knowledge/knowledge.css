@@ -1,17 +1,3 @@
-.has-knowledge { height: 100dvh; background: #fff; }
-.has-knowledge > .app-sidebar { width: 76px; flex: 0 0 76px; background: #f2f5f2; border-color: #e4e9e4; }
-.has-knowledge .app-brand { height: 72px; padding: 17px; display: flex; align-items: center; justify-content: center; border-color: #e4e9e4; }
-.has-knowledge .app-brand h1, .has-knowledge .app-brand p { display: none; }
-.has-knowledge .app-brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid #b9cabe; border-radius: 11px; color: #446f57; font: 23px "LXGW WenKai", serif; background: #f9fcf9; }
-.has-knowledge .app-navigation { padding: 20px 8px; }
-.has-knowledge .app-navigation button { min-height: 64px; padding: 9px 3px; flex-direction: column; gap: 5px; background-image: none; border-radius: 9px; color: #697461; box-shadow: none; }
-.has-knowledge .app-navigation button > span:first-child { font-size: 21px; line-height: 1.2; filter: saturate(.65); }
-.has-knowledge .app-navigation button > span:nth-child(2) { flex: 0; font-size: 11px; line-height: 1.4; }
-.has-knowledge .app-navigation button > div { display: none; }
-.has-knowledge .app-navigation button:hover { background: #e9eee9; }
-.has-knowledge .app-navigation button[aria-current="page"] { color: #33624b; background: #e3ece4; }
-.has-knowledge .app-sidebar-footer { display: none; }
-
 .knowledge-shell {
   --kb-ink: #303a33;
   --kb-muted: #869087;
