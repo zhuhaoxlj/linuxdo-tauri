@@ -7,6 +7,7 @@ const DEFAULT_CATEGORIES = [
   { id: 'life', name: '生活', icon: '🌟', color: '#10b981' },
   { id: 'work', name: '工作', icon: '💼', color: '#f59e0b' },
   { id: 'knowledge', name: '知识库', icon: '📚', color: '#8b5cf6' },
+  { id: 'sync', name: '同步空间', icon: '☁️', color: '#4974bb' },
   { id: 'entertainment', name: '娱乐', icon: '🎮', color: '#ec4899' },
   { id: 'linuxdo', name: 'LinuxDo', icon: '🐧', color: '#06b6d4' }
 ];
@@ -93,7 +94,7 @@ export function BoardProvider({ children }) {
   const updateTask = (id, updates) => {
     setTasks(prev => prev.map(task => {
       if (task.id !== id) return task;
-      const next = withColumn({ ...task, ...updates });
+      const next = withColumn({ ...task, ...updates, updatedAt: new Date().toISOString() });
       return { ...next, completed: next.column === 'done' };
     }));
   };
@@ -106,7 +107,7 @@ export function BoardProvider({ children }) {
     setTasks(prev => prev.map(task => {
       if (task.id !== id) return task;
       const column = task.column === 'done' ? 'inbox' : 'done';
-      return { ...task, column, completed: column === 'done' };
+      return { ...task, column, completed: column === 'done', updatedAt: new Date().toISOString() };
     }));
   };
 
@@ -115,7 +116,7 @@ export function BoardProvider({ children }) {
       const current = prev.find(task => task.id === id);
       if (!current) return prev;
       const rest = prev.filter(task => task.id !== id);
-      const moved = withColumn({ ...current, column, completed: column === 'done' });
+      const moved = withColumn({ ...current, column, completed: column === 'done', updatedAt: new Date().toISOString() });
       return insertTask(rest, moved, beforeId);
     });
   };

@@ -10,12 +10,63 @@ use std::sync::{
     Mutex,
 };
 use tauri::{Manager, State};
+use tauri::{WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_deep_link::DeepLinkExt;
 
 #[derive(Default)]
 struct AppState {
     pending_login: Mutex<Option<PendingLogin>>,
     authenticated: AtomicBool,
+}
+
+const SYNC_WORKSPACE_URL: &str = "https://mast.lindum.top/a/notes-sync/app/";
+const MAX_LEGACY_WORKSPACE_BYTES: usize = 8 * 1024 * 1024;
+
+#[tauri::command]
+fn open_synced_workspace(app: tauri::AppHandle, legacy_data: Value) -> Result<(), String> {
+    let serialized =
+        serde_json::to_string(&legacy_data).map_err(|_| "本地数据无法序列化".to_string())?;
+    if serialized.len() > MAX_LEGACY_WORKSPACE_BYTES {
+        return Err("本地工作空间数据过大，无法一次导入同步空间".to_string());
+    }
+    if let Some(window) = app.get_webview_window("synced-workspace") {
+        window
+            .eval(format!(
+                "window.__LINUXDO_LEGACY_WORKSPACE__ = {serialized}; window.dispatchEvent(new Event('linuxdo-legacy-workspace'));"
+            ))
+            .map_err(|_| "无法更新同步空间中的本地数据".to_string())?;
+        window.show().map_err(|_| "无法显示同步空间".to_string())?;
+        window
+            .set_focus()
+            .map_err(|_| "无法聚焦同步空间".to_string())?;
+        return Ok(());
+    }
+    let import_script = format!("window.__LINUXDO_LEGACY_WORKSPACE__ = {serialized};");
+    WebviewWindowBuilder::new(
+        &app,
+        "synced-workspace",
+        WebviewUrl::External(
+            SYNC_WORKSPACE_URL
+                .parse()
+                .expect("valid sync workspace URL"),
+        ),
+    )
+    .title("LinuxDo · 同步空间")
+    .inner_size(1180.0, 780.0)
+    .min_inner_size(390.0, 640.0)
+    .initialization_script(&import_script)
+    .on_navigation(|url| {
+        let allowed = url.scheme() == "https"
+            && url.host_str() == Some("mast.lindum.top")
+            && url.port_or_known_default() == Some(443);
+        if !allowed && matches!(url.scheme(), "http" | "https") {
+            let _ = tauri_plugin_opener::open_url(url.as_str(), None::<&str>);
+        }
+        allowed
+    })
+    .build()
+    .map_err(|_| "无法打开同步空间，请检查网络连接".to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -240,6 +291,7 @@ pub fn run() {
             upload_file,
             site_ready,
             site_response,
+            open_synced_workspace,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

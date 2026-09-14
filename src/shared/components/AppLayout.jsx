@@ -3,15 +3,27 @@ import '../../modules/board/board.css';
 import '../app-shell.css';
 import { useBoard } from '../../modules/board/context/BoardContext';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { legacyWorkspacePayload } from '../../modules/board/lib/legacyWorkspace';
 
 export default function AppLayout({ children }) {
-  const { categories, activeCategory, setActiveCategory } = useBoard();
+  const { categories, activeCategory, setActiveCategory, tasks, notes } = useBoard();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const handleCategoryClick = (categoryId) => {
+  const handleCategoryClick = async (categoryId) => {
     if (categoryId === 'linuxdo') {
       navigate('/linuxdo');
+    } else if (categoryId === 'sync') {
+      try {
+        if (isTauri()) {
+          await invoke('open_synced_workspace', { legacyData: legacyWorkspacePayload(tasks, notes) });
+        } else {
+          window.open('https://mast.lindum.top/a/notes-sync/app/', '_blank', 'noopener,noreferrer');
+        }
+      } catch (error) {
+        console.error('Failed to open synced workspace:', error);
+      }
     } else if (categoryId === 'knowledge') {
       setActiveCategory(categoryId);
       navigate('/knowledge');
@@ -50,7 +62,7 @@ export default function AppLayout({ children }) {
                 type="button"
                 title={category.name}
                 aria-current={currentActive === category.id ? 'page' : undefined}
-                onClick={() => handleCategoryClick(category.id)}
+                onClick={() => { void handleCategoryClick(category.id); }}
                 className="app-nav-item"
               >
                 <span className="app-nav-icon">{category.icon}</span>

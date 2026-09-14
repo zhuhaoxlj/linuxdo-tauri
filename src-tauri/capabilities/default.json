@@ -18,6 +18,7 @@
     "allow-logout",
     "allow-discourse-request",
     "allow-fetch-forum-image",
-    "allow-upload-file"
+    "allow-upload-file",
+    "allow-open-synced-workspace"
   ]
 }
