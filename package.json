@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:deb": "tauri build --target x86_64-unknown-linux-gnu --bundles deb"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.102.8",
