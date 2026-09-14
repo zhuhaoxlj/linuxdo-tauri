@@ -38,36 +38,45 @@ export function BoardProvider({ children }) {
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [storageReady, setStorageReady] = useState(false);
+  const [storageError, setStorageError] = useState('');
 
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const data = JSON.parse(stored);
+        if (!Array.isArray(data.tasks || []) || !Array.isArray(data.notes || [])) {
+          throw new Error('Invalid board data');
+        }
         setTasks((data.tasks || []).map(withColumn));
         setNotes(data.notes || []);
         setActiveCategory(data.activeCategory || 'home');
       }
+      setStorageReady(true);
     } catch (error) {
       console.error('Failed to load data:', error);
+      setStorageError('本地数据读取失败，已停止自动保存，避免覆盖原有内容。');
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!loading) {
+    if (!loading && storageReady) {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
           tasks,
           notes,
           activeCategory
         }));
+        setStorageError('');
       } catch (error) {
         console.error('Failed to save data:', error);
+        setStorageError('未能保存到本地，可能是存储空间不足。请先复制正在编辑的 Markdown，避免内容丢失。');
       }
     }
-  }, [tasks, notes, activeCategory, loading]);
+  }, [tasks, notes, activeCategory, loading, storageReady]);
 
   const addTask = (task) => {
     const column = task.column || 'inbox';
@@ -112,16 +121,15 @@ export function BoardProvider({ children }) {
   };
 
   const addNote = (note) => {
-    setNotes(prev => [...prev, {
-      id: Date.now().toString(),
-      createdAt: new Date().toISOString(),
-      ...note
-    }]);
+    const timestamp = new Date().toISOString();
+    const created = { ...note, id: crypto.randomUUID(), createdAt: timestamp, updatedAt: timestamp };
+    setNotes(prev => [...prev, created]);
+    return created;
   };
 
   const updateNote = (id, updates) => {
     setNotes(prev => prev.map(note =>
-      note.id === id ? { ...note, ...updates } : note
+      note.id === id ? { ...note, ...updates, updatedAt: new Date().toISOString() } : note
     ));
   };
 
@@ -143,7 +151,9 @@ export function BoardProvider({ children }) {
     addNote,
     updateNote,
     deleteNote,
-    loading
+    loading,
+    storageError,
+    storageReady,
   };
 
   return (

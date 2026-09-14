@@ -1,9 +1,12 @@
 import React, { useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { isTauri } from '@tauri-apps/api/core';
 import { BoardProvider } from './modules/board/context/BoardContext';
 import AppLayout from './shared/components/AppLayout';
 import BoardPage from './modules/board/pages/BoardPage';
+
+const KnowledgePage = lazy(() => import('./modules/knowledge/pages/KnowledgePage'));
 
 // 预加载 LinuxDo 模块
 const LinuxDoModule = lazy(() => {
@@ -28,6 +31,7 @@ export default function App() {
   // 处理外部链接
   useEffect(() => {
     const external = event => {
+      if (!isTauri()) return;
       if (event.defaultPrevented) return;
       const anchor = event.target.closest?.('a[href]');
       if (!anchor || anchor.target !== '_blank' || !/^https?:\/\//i.test(anchor.href)) return;
@@ -63,6 +67,11 @@ export default function App() {
           
           {/* 看板模块 */}
           <Route path="/board" element={<BoardPage />} />
+          <Route path="/knowledge/:noteId?" element={
+            <Suspense fallback={<div className="p-8" role="status">正在打开知识库…</div>}>
+              <KnowledgePage />
+            </Suspense>
+          } />
           
           {/* LinuxDo 模块 - 使用 Suspense 包裹 */}
           <Route 
