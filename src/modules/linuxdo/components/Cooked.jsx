@@ -100,7 +100,7 @@ export default function Cooked({ html = '', className = '' }) {
     const anchor = event.target.closest('a');
     if (anchor && (event.ctrlKey || event.metaKey || event.shiftKey)) return;
     if (anchor) {
-      const route = internalPath(anchor.href);
+      const route = internalPath(anchor.getAttribute('href') || anchor.href);
       if (route) { event.preventDefault(); navigate(route); }
       else { anchor.target = '_blank'; anchor.rel = 'noopener noreferrer'; }
     }

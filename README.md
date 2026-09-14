@@ -44,9 +44,12 @@ npm run tauri dev
 # 构建前端
 npm run build
 
-# 构建桌面应用
+# 构建 deb，并通过图形密码框授权安装
 npm run tauri build
 ```
+
+该命令只生成 deb 包。构建成功后会调用 `pkexec dpkg -i`，由系统 Polkit
+弹出密码输入框并安装新版本。带额外参数的 Tauri 命令仍会原样执行，不会自动安装。
 
 ## 📁 项目结构
 

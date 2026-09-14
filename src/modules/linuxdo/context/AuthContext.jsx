@@ -1,15 +1,18 @@
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { useQueryClient } from '@tanstack/react-query';
+import { errorText } from '../lib/api';
+import { restoreAuthSession, terminateAuthSession } from '../lib/authSession';
 
 const AuthContext = createContext();
 
-// 从 localStorage 恢复认证状态
+// 本地状态仅用于首帧占位，是否登录最终以原生会话验证结果为准。
 export function loadStoredAuth() {
   try {
     const stored = localStorage.getItem('linuxdo-auth');
     if (stored) {
       const auth = JSON.parse(stored);
-      // 简单验证数据结构
-      if (auth.user || auth.guest) {
+      if (auth.user?.username || auth.guest === true) {
         return auth;
       }
     }
@@ -29,20 +32,41 @@ function saveAuth(auth) {
 }
 
 export function AuthProvider({ children }) {
-  // 首帧就同步读回登录状态：否则子组件会先用空用户名建查询键，
-  // 等这里的 effect 恢复登录后再用真实用户名重发一次同样的请求。
   const [restored] = useState(loadStoredAuth);
   const [user, setUser] = useState(restored?.user || null);
   const [guest, setGuest] = useState(Boolean(restored?.guest));
-  const [checking, setChecking] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [error, setError] = useState(null);
+  const queries = useQueryClient();
+
+  useEffect(() => {
+    let disposed = false;
+    restoreAuthSession(invoke, restored)
+      .then(auth => {
+        if (disposed) return;
+        setUser(auth?.user || null);
+        setGuest(Boolean(auth?.guest));
+        if (auth) saveAuth(auth);
+        else localStorage.removeItem('linuxdo-auth');
+      })
+      .catch(reason => {
+        if (disposed) return;
+        setUser(null);
+        setGuest(false);
+        setError(errorText(reason));
+        localStorage.removeItem('linuxdo-auth');
+      })
+      .finally(() => { if (!disposed) setChecking(false); });
+    return () => { disposed = true; };
+  }, [restored]);
 
   const login = useCallback((userData) => {
+    queries.clear();
     setUser(userData);
     setGuest(false);
     setError(null);
     saveAuth({ user: userData, guest: false });
-  }, []);
+  }, [queries]);
 
   const browse = useCallback(() => {
     setUser(null);
@@ -51,8 +75,16 @@ export function AuthProvider({ children }) {
     saveAuth({ user: null, guest: true });
   }, []);
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    await terminateAuthSession(invoke);
+    queries.clear();
     setUser(null);
+    setGuest(false);
+    setError(null);
+    localStorage.removeItem('linuxdo-auth');
+  }, [queries]);
+
+  const requestLogin = useCallback(() => {
     setGuest(false);
     setError(null);
     localStorage.removeItem('linuxdo-auth');
@@ -65,8 +97,9 @@ export function AuthProvider({ children }) {
     error,
     login,
     browse,
-    logout
-  }), [user, guest, checking, error, login, browse, logout]);
+    logout,
+    requestLogin
+  }), [user, guest, checking, error, login, browse, logout, requestLogin]);
 
   return (
     <AuthContext.Provider value={value}>

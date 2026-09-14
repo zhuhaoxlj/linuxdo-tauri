@@ -61,6 +61,26 @@ export function topicPath(id, postNumber) {
 }
 
 export function internalPath(href) {
+  if (typeof href !== 'string') return null;
+  const hashPath = href.startsWith('#/')
+    ? href.slice(1)
+    : (() => {
+        try {
+          const url = new URL(href);
+          return url.protocol === 'tauri:' && url.hostname === 'localhost' && url.hash.startsWith('#/')
+            ? url.hash.slice(1)
+            : null;
+        } catch {
+          return null;
+        }
+      })();
+  if (hashPath) {
+    return hashPath === LINUXDO_BASE
+      || hashPath.startsWith(`${LINUXDO_BASE}/`)
+      || hashPath.startsWith(`${LINUXDO_BASE}?`)
+      ? hashPath
+      : null;
+  }
   let url;
   try { url = new URL(href, 'https://linux.do'); } catch { return null; }
   if (url.origin !== 'https://linux.do') return null;

@@ -100,7 +100,8 @@ def main():
             print('Artifacts:', directory)
             return
 
-        wait_for(lambda: script("return Boolean(document.querySelector('button:not([disabled])'));"), 'Login listener never became ready')
+        script("location.hash = '#/linuxdo';")
+        wait_for(lambda: script("return Array.from(document.querySelectorAll('button:not([disabled])')).some(button => button.textContent.includes('浏览器登录'));"), 'Login listener never became ready')
         child = subprocess.Popen([binary, 'discourse://auth_redirect?payload=native-regression'], env=env, stdout=log, stderr=log)
         try:
             assert child.wait(timeout=5) == 0, 'Callback process failed'
