@@ -2,12 +2,12 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { useQuery } from '@tanstack/react-query';
 import { siteQuery } from '../lib/queries';
 import { readLocal, writeLocal } from '../lib/storage';
+import { mergeSettings } from '../lib/settings';
 
 const Context = createContext(null);
-const defaults = { theme: 'system', accent: 'blue', font: 'default', uiFontSize: 14, fontSize: 16, compact: false, showAvatars: true, notifications: true, nestedView: false, nestedLineStyle: 'auto' };
 
 export function AppProvider({ children }) {
-  const [settings, setSettings] = useState(() => ({ ...defaults, ...readLocal('settings', {}) }));
+  const [settings, setSettings] = useState(() => mergeSettings(readLocal('settings', {})));
   const [toast, setToast] = useState('');
   const notify = useCallback(message => setToast(message), []);
   const updateSettings = patch => setSettings(current => {

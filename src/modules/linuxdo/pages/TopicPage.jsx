@@ -38,7 +38,8 @@ export default function TopicPage() {
   const [headings, setHeadings] = useState([]);
   const [activeHeading, setActiveHeading] = useState('');
   const [jump, setJump] = useState(postNumber || '1');
-  const [nestedView, setNestedView] = useState(false);
+  // 按设置里的默认值起步，进入话题直接渲染树状视图，避免先闪一帧平铺列表
+  const [nestedView, setNestedView] = useState(() => settings.nestedView === true);
   const [nestedAuto, setNestedAuto] = useState(false);
   const [nestedSort, setNestedSort] = useState('old');
   const [nestedPosts, setNestedPosts] = useState([]);
