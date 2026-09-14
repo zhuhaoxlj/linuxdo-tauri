@@ -4,17 +4,17 @@
 .app-shell {
   height: 100dvh;
   background: #fff;
-  color: #303a33;
+  color: #253348;
   color-scheme: light;
-  font-family: "Noto Sans CJK SC", "Noto Sans", sans-serif;
+  font-family: "Inter", "Noto Sans CJK SC", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 13px;
   line-height: 1.6;
 }
 .app-shell > .app-sidebar {
   width: 76px;
   flex: 0 0 76px;
-  background: #f2f5f2;
-  border-color: #e4e9e4;
+  background: #fbfcff;
+  border-color: #e6ebf3;
 }
 .app-shell .app-brand {
   height: 72px;
@@ -22,7 +22,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-color: #e4e9e4;
+  border-color: #e6ebf3;
 }
 .app-shell .app-brand h1,
 .app-shell .app-brand p { display: none; }
@@ -31,11 +31,11 @@
   place-items: center;
   width: 36px;
   height: 36px;
-  border: 1px solid #b9cabe;
+  border: 1px solid #c9d6ea;
   border-radius: 11px;
-  color: #446f57;
+  color: #4974bb;
   font: 23px "LXGW WenKai", serif;
-  background: #f9fcf9;
+  background: #ffffff;
 }
 .app-shell .app-navigation { padding: 20px 8px; }
 .app-shell .app-navigation button {
@@ -45,13 +45,13 @@
   gap: 5px;
   background-image: none;
   border-radius: 9px;
-  color: #697461;
+  color: #718097;
   box-shadow: none;
 }
 .app-shell .app-navigation button > span:first-child { font-size: 21px; line-height: 1.2; filter: saturate(.65); }
 .app-shell .app-navigation button > span:nth-child(2) { flex: 0; font-size: 11px; line-height: 1.4; }
 .app-shell .app-navigation button > div { display: none; }
-.app-shell .app-navigation button:hover { background: #e9eee9; }
-.app-shell .app-navigation button[aria-current="page"] { color: #33624b; background: #e3ece4; }
+.app-shell .app-navigation button:hover { background: #eef3fb; }
+.app-shell .app-navigation button[aria-current="page"] { color: #345e9f; background: #eaf1fd; }
 .app-shell .app-sidebar-footer { display: none; }
-.app-shell :focus-visible { outline: 2px solid #47785b; outline-offset: 3px; }
+.app-shell :focus-visible { outline: 2px solid #4974bb; outline-offset: 3px; }
