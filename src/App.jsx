@@ -2,6 +2,7 @@ import React, { useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { isTauri } from '@tauri-apps/api/core';
+import { useQueryClient } from '@tanstack/react-query';
 import { BoardProvider } from './modules/board/context/BoardContext';
 import AppLayout from './shared/components/AppLayout';
 import BoardPage from './modules/board/pages/BoardPage';
@@ -9,11 +10,7 @@ import BoardPage from './modules/board/pages/BoardPage';
 const KnowledgePage = lazy(() => import('./modules/knowledge/pages/KnowledgePage'));
 
 // 预加载 LinuxDo 模块
-const LinuxDoModule = lazy(() => {
-  // 添加预加载提示
-  console.log('🚀 预加载 LinuxDo 模块...');
-  return import('./modules/linuxdo/LinuxDoModule');
-});
+const LinuxDoModule = lazy(() => import('./modules/linuxdo/LinuxDoModule'));
 
 // LinuxDo 加载占位组件
 function LinuxDoLoading() {
@@ -27,7 +24,13 @@ function LinuxDoLoading() {
   );
 }
 
+// 用户停留在看板或知识库时，就把论坛预热好：首次请求需要 Rust 侧创建并加载
+// site-session 窗口，这段开销提前做掉，进入论坛时直接命中预取的数据。
+const WARMUP_DELAY = 800;
+
 export default function App() {
+  const queries = useQueryClient();
+
   // 处理外部链接
   useEffect(() => {
     const external = event => {
@@ -42,21 +45,25 @@ export default function App() {
     return () => document.removeEventListener('click', external);
   }, []);
 
-  // 预加载 LinuxDo 模块（应用启动后延迟预加载）
+  // 预加载 LinuxDo 模块并预取首屏数据（应用启动后延迟执行，避免影响首屏渲染）
   useEffect(() => {
-    // 延迟 1 秒后开始预加载，避免影响首屏加载
+    if (!isTauri()) return undefined;
     const timer = setTimeout(() => {
-      // 触发 LinuxDo 模块的预加载
-      const preload = import('./modules/linuxdo/LinuxDoModule');
-      preload.then(() => {
-        console.log('✅ LinuxDo 模块预加载完成');
-      }).catch(err => {
-        console.warn('⚠️ LinuxDo 模块预加载失败:', err);
+      Promise.all([
+        import('./modules/linuxdo/LinuxDoModule'),
+        import('./modules/linuxdo/lib/queries'),
+        import('./modules/linuxdo/context/AuthContext'),
+      ]).then(([, { preloadForum }, { loadStoredAuth }]) =>
+        preloadForum(queries, loadStoredAuth()?.user?.username)
+      ).then(() => {
+        console.log('✅ LinuxDo 模块与首屏数据已预取');
+      }).catch(error => {
+        console.warn('⚠️ LinuxDo 预加载失败:', error);
       });
-    }, 1000);
+    }, WARMUP_DELAY);
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [queries]);
 
   return (
     <BoardProvider>

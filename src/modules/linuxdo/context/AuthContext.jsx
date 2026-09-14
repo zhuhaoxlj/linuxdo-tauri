@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 
 const AuthContext = createContext();
 
 // 从 localStorage 恢复认证状态
-function loadStoredAuth() {
+export function loadStoredAuth() {
   try {
     const stored = localStorage.getItem('linuxdo-auth');
     if (stored) {
@@ -29,21 +29,13 @@ function saveAuth(auth) {
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [guest, setGuest] = useState(false);
-  const [checking, setChecking] = useState(true);
+  // 首帧就同步读回登录状态：否则子组件会先用空用户名建查询键，
+  // 等这里的 effect 恢复登录后再用真实用户名重发一次同样的请求。
+  const [restored] = useState(loadStoredAuth);
+  const [user, setUser] = useState(restored?.user || null);
+  const [guest, setGuest] = useState(Boolean(restored?.guest));
+  const [checking, setChecking] = useState(false);
   const [error, setError] = useState(null);
-
-  // 恢复登录状态
-  useEffect(() => {
-    const stored = loadStoredAuth();
-    if (stored) {
-      setUser(stored.user || null);
-      setGuest(stored.guest || false);
-      console.log('✅ LinuxDo 认证状态已恢复');
-    }
-    setChecking(false);
-  }, []);
 
   const login = useCallback((userData) => {
     setUser(userData);

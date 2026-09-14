@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../lib/api';
+import { siteQuery } from '../lib/queries';
 import { readLocal, writeLocal } from '../lib/storage';
 
 const Context = createContext(null);
@@ -31,4 +31,5 @@ export function AppProvider({ children }) {
 }
 
 export const useApp = () => useContext(Context);
-export const useSite = () => useQuery({ queryKey: ['site'], queryFn: () => api.get('/site.json'), staleTime: 5 * 60_000 });
+// 与启动预取共用同一份查询定义，保证进入论坛时直接命中缓存。
+export const useSite = () => useQuery(siteQuery());

@@ -6,6 +6,7 @@ import { ArrowUpRight, RefreshCw, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useSite } from '../context/AppContext';
 import { api } from '../lib/api';
+import { topicsNextPageParam, topicsQueryKey } from '../lib/queries';
 import { Empty, ErrorState, Loading, LoadMore, PageHeading } from '../components/Common';
 import TopicRow from '../components/TopicRow';
 
@@ -28,10 +29,10 @@ export default function TopicsPage({ feed = 'latest' }) {
   } else if (tag) path = `/tag/${encodeURIComponent(tag)}/l/${filter}.json`;
   else if (feed === 'my-topics' && user) path = `/topics/created-by/${encodeURIComponent(user.username)}.json`;
   const query = useInfiniteQuery({
-    queryKey: ['topics', path, period, user?.username], initialPageParam: 0,
+    queryKey: topicsQueryKey({ path, period, username: user?.username }), initialPageParam: 0,
     enabled: (!categoryId || Boolean(category)) && (!privateFeed || Boolean(user)),
     queryFn: ({ pageParam }) => api.get(path, { page: pageParam || undefined, period: filter === 'top' ? period : undefined }),
-    getNextPageParam: (last, pages) => last.topic_list?.more_topics_url && last.topic_list?.topics?.length ? pages.length : undefined,
+    getNextPageParam: topicsNextPageParam,
   });
   const pages = query.data?.pages || [];
   const users = Object.fromEntries(pages.flatMap(page => page.users || []).map(value => [value.id, value]));
