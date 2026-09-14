@@ -57,7 +57,6 @@
   padding: 8px;
 }
 .kanban-column.drop-target { outline: 2px dashed #a9bcdd; outline-offset: -2px; }
-.kanban-column.collapsed { flex: 0 0 160px; width: 160px; }
 .kanban-column-header {
   display: flex;
   align-items: center;
