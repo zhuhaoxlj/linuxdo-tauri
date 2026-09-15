@@ -18,6 +18,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
   const cardRef = useRef(null);
+  const editorRef = useRef(null);
   const images = task.images || [];
   const titleSegments = useMemo(() => linkSegments(task.title), [task.title]);
 
@@ -71,6 +72,14 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
       document.removeEventListener('keydown', onKey);
     };
   }, [menuOpen]);
+
+  // 编辑框随内容长高，换行后的多行卡片在编辑器里也能完整看到（上限 240px 后内部滚动）
+  useLayoutEffect(() => {
+    const node = editorRef.current;
+    if (!editing || !node) return;
+    node.style.height = 'auto';
+    node.style.height = `${Math.min(node.scrollHeight, 240)}px`;
+  }, [editing, title]);
 
   const save = () => {
     const next = title.trim();
@@ -133,28 +142,34 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
     >
       {task.pinned && <span className="kanban-pin-badge"><Pin size={12} />已置顶</span>}
       {editing ? (
-        <textarea
-          className="kanban-card-editor"
-          value={title}
-          onChange={event => setTitle(event.target.value)}
-          onBlur={event => {
-            if (cardRef.current?.contains(event.relatedTarget)) return;
-            save();
-          }}
-          onPaste={attachImages}
-          onKeyDown={event => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
+        <>
+          <textarea
+            ref={editorRef}
+            className="kanban-card-editor"
+            value={title}
+            onChange={event => setTitle(event.target.value)}
+            onBlur={event => {
+              if (cardRef.current?.contains(event.relatedTarget)) return;
               save();
-            }
-            if (event.key === 'Escape') {
-              setTitle(task.title || '');
-              setEditing(false);
-            }
-          }}
-          rows={2}
-          autoFocus
-        />
+            }}
+            onPaste={attachImages}
+            onKeyDown={event => {
+              // 回车换行，Ctrl / ⌘ + Enter 保存（与“添加卡片”一致）
+              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+                event.preventDefault();
+                save();
+                return;
+              }
+              if (event.key === 'Escape') {
+                setTitle(task.title || '');
+                setEditing(false);
+              }
+            }}
+            rows={2}
+            autoFocus
+          />
+          <span className="kanban-shortcut">Enter 换行 · Ctrl+Enter 保存</span>
+        </>
       ) : (
         task.title ? (
           <p className="kanban-card-title">

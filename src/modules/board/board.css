@@ -124,6 +124,7 @@
   line-height: 1.55;
   color: #253348;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 .kanban-card-link {
   color: #4974bb;
@@ -139,6 +140,7 @@
   min-height: 52px;
   font-size: 0.875rem;
 }
+.kanban-card .kanban-shortcut { display: block; margin: 4px 0 0; }
 .kanban-menu {
   position: fixed;
   z-index: 80;
