@@ -11,6 +11,10 @@ fn main() {
             "upload_file",
             "site_ready",
             "site_response",
+            "shared_storage_load",
+            "shared_storage_save",
+            "shared_storage_put",
+            "shared_storage_backup",
         ]),
     ))
     .expect("failed to build Tauri application");

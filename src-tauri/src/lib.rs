@@ -1,9 +1,11 @@
 mod api;
 mod auth;
+mod shared_storage;
 mod site_session;
 
 use auth::PendingLogin;
 use serde_json::Value;
+use shared_storage::SharedStorageLock;
 use site_session::{SessionTask, SiteReply, SiteSession};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -222,6 +224,7 @@ pub fn run() {
         })
         .manage(AppState::default())
         .manage(SiteSession::default())
+        .manage(SharedStorageLock::default())
         .on_window_event(|window, event| {
             if window.label() == "main"
                 && matches!(event, tauri::WindowEvent::CloseRequested { .. })
@@ -240,6 +243,10 @@ pub fn run() {
             upload_file,
             site_ready,
             site_response,
+            shared_storage::shared_storage_load,
+            shared_storage::shared_storage_save,
+            shared_storage::shared_storage_put,
+            shared_storage::shared_storage_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

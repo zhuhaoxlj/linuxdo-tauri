@@ -5,6 +5,7 @@ import { listDevices, revokeDevice } from '../../sync/api';
 import { approvePairingCode, claimPairingSession, createPairingSession } from '../../sync/vault';
 import { detachWorkspace, mergeWorkspace, noteToRecord, taskToRecord } from '../../sync/workspace';
 import { acknowledgedDirtyIds } from '../../sync/pending';
+import { writeSharedValue } from '../../../shared/sharedStorage';
 
 const BoardContext = createContext();
 
@@ -97,7 +98,8 @@ export function BoardProvider({ children }) {
   useEffect(() => {
     if (!loading && storageReady) {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        // 看板与知识库笔记同时写入本机与开发版/正式版共享文件
+        writeSharedValue(STORAGE_KEY, JSON.stringify({
           tasks,
           notes,
           tombstones,

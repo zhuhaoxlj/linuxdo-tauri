@@ -1,3 +1,5 @@
+import { writeSharedValue } from '../../../shared/sharedStorage';
+
 const prefix = 'fluxdo:';
 
 export function readLocal(key, fallback) {
@@ -8,7 +10,8 @@ export function readLocal(key, fallback) {
 }
 
 export function writeLocal(key, value) {
-  localStorage.setItem(prefix + key, JSON.stringify(value));
+  // 同时写入本机与开发版/正式版共用的共享文件
+  writeSharedValue(prefix + key, JSON.stringify(value));
   window.dispatchEvent(new CustomEvent('fluxdo:storage', { detail: key }));
 }
 

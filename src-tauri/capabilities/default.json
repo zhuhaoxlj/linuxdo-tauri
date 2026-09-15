@@ -18,6 +18,10 @@
     "allow-logout",
     "allow-discourse-request",
     "allow-fetch-forum-image",
-    "allow-upload-file"
+    "allow-upload-file",
+    "allow-shared-storage-load",
+    "allow-shared-storage-save",
+    "allow-shared-storage-put",
+    "allow-shared-storage-backup"
   ]
 }

@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { errorText } from '../lib/api';
 import { restoreAuthSession, terminateAuthSession } from '../lib/authSession';
+import { removeSharedValue, writeSharedValue } from '../../../shared/sharedStorage';
 
 const AuthContext = createContext();
 
@@ -22,10 +23,10 @@ export function loadStoredAuth() {
   return null;
 }
 
-// 保存认证状态到 localStorage
+// 保存认证状态到 localStorage，并同步到开发版/正式版共享文件
 function saveAuth(auth) {
   try {
-    localStorage.setItem('linuxdo-auth', JSON.stringify(auth));
+    writeSharedValue('linuxdo-auth', JSON.stringify(auth));
   } catch (error) {
     console.error('Failed to save auth:', error);
   }
@@ -47,14 +48,14 @@ export function AuthProvider({ children }) {
         setUser(auth?.user || null);
         setGuest(Boolean(auth?.guest));
         if (auth) saveAuth(auth);
-        else localStorage.removeItem('linuxdo-auth');
+        else removeSharedValue('linuxdo-auth');
       })
       .catch(reason => {
         if (disposed) return;
         setUser(null);
         setGuest(false);
         setError(errorText(reason));
-        localStorage.removeItem('linuxdo-auth');
+        removeSharedValue('linuxdo-auth');
       })
       .finally(() => { if (!disposed) setChecking(false); });
     return () => { disposed = true; };
@@ -81,13 +82,13 @@ export function AuthProvider({ children }) {
     setUser(null);
     setGuest(false);
     setError(null);
-    localStorage.removeItem('linuxdo-auth');
+    removeSharedValue('linuxdo-auth');
   }, [queries]);
 
   const requestLogin = useCallback(() => {
     setGuest(false);
     setError(null);
-    localStorage.removeItem('linuxdo-auth');
+    removeSharedValue('linuxdo-auth');
   }, []);
 
   const value = useMemo(() => ({

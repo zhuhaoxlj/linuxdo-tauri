@@ -57,6 +57,24 @@ npm run tauri build
 该命令只生成 deb 包。构建成功后会调用 `pkexec dpkg -i`，由系统 Polkit
 弹出密码输入框并安装新版本。带额外参数的 Tauri 命令仍会原样执行，不会自动安装。
 
+### 开发版与正式版共享数据
+
+WebKitGTK 的 localStorage 按 origin 分区：正式版跑在 `tauri://localhost`，`npm run tauri dev`
+跑在 `http://localhost:1420`，默认情况下两个版本各存一份数据、互相看不见。应用用
+`<app_data_dir>/shared-web-storage.json`（Linux 上是
+`~/.local/share/com.linuxdo.tauri/shared-web-storage.json`）做共享层：
+
+- 启动时（渲染前）把共享文件里的键值合并进本机 localStorage，之后每次写入都回写文件；
+  共享的键包括 `fluxdo:*`（设置、草稿、阅读历史、聊天草稿）、`board-data-v1`
+  （看板与知识库笔记）和 `linuxdo-auth`（登录缓存）。
+- 首次运行时文件由先启动的一方用自己的数据播种；**正式版启动时如果发现文件是 dev 播种的，
+  会用自己的数据重新播种一次（正式版为主）**，此后按写入顺序互相覆盖。
+- 覆盖前会把旧值备份到 `<app_data_dir>/shared-web-storage-backups/`，保留最近 10 份。
+- 登录 cookie 本来就按域名存在同一个数据目录里，两个版本共用；但同步配对用的加密库
+  （IndexedDB）仍按 origin 分开，dev 里会显示未配对，需要单独配对。
+
+想重置共享数据，删掉 `shared-web-storage.json` 后分别启动一次两个版本即可。
+
 ## 📁 项目结构
 
 ```
