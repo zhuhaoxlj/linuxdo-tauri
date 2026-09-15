@@ -2,17 +2,21 @@ import React, { useState } from 'react';
 import { ChevronDown, GripVertical, Plus, X } from 'lucide-react';
 import KanbanCard from './KanbanCard';
 import ImageThumbnail from './ImageThumbnail';
+import ColumnResizer from './ColumnResizer';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 
 export default function KanbanColumn({
   column,
   cards,
+  width,
   collapsed,
   onToggleCollapsed,
   onAdd,
   onUpdate,
   onDelete,
   onDragStart,
+  onResize,
+  onResizeCommit,
   onDropOnColumn,
   onDropOnCard,
   isDropTarget,
@@ -51,6 +55,7 @@ export default function KanbanColumn({
     <section
       data-column-id={column.id}
       className={`kanban-column${collapsed ? ' collapsed' : ''}${isDropTarget ? ' drop-target' : ''}`}
+      style={{ width: `${width}px` }}
       onDragOver={event => { event.preventDefault(); onDropOnColumn.hover(column.id); }}
       onDragLeave={() => onDropOnColumn.leave(column.id)}
       onDrop={event => onDropOnColumn.drop(event, column.id)}
@@ -68,6 +73,8 @@ export default function KanbanColumn({
         <h2>{column.name}</h2>
         <b>{cards.length}</b>
       </header>
+
+      <ColumnResizer width={width} onResize={onResize} onCommit={onResizeCommit} />
 
       {!collapsed && (
         <>

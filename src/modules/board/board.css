@@ -45,8 +45,8 @@
   min-height: 0;
 }
 .kanban-column {
-  width: 280px;
-  flex: 0 0 280px;
+  position: relative;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -57,6 +57,38 @@
   padding: 8px;
 }
 .kanban-column.drop-target { outline: 2px dashed #a9bcdd; outline-offset: -2px; }
+.kanban-column-resizer {
+  position: absolute;
+  top: 0;
+  right: -6px;
+  bottom: 0;
+  width: 12px;
+  cursor: col-resize;
+  touch-action: none;
+  border-radius: 6px;
+}
+.kanban-column-resizer::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 5px;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+}
+.kanban-column-resizer:hover::after,
+.kanban-column-resizer:focus-visible::after,
+body.kanban-resizing .kanban-column-resizer::after { background: #a9bcdd; }
+/* 全局 ::focus-visible 会把整列高度圈起来，像选中了整列；这里改成加粗手柄线作为焦点提示 */
+.kanban-board .kanban-column-resizer:focus-visible { outline: none; }
+.kanban-board .kanban-column-resizer:focus-visible::after {
+  left: 4px;
+  width: 3px;
+  background: #4974bb;
+}
+body.kanban-resizing { cursor: col-resize; user-select: none; }
+body.kanban-resizing .kanban-cards { pointer-events: none; }
 .kanban-column-header {
   display: flex;
   align-items: center;

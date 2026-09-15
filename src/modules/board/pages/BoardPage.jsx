@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { KANBAN_COLUMNS, useBoard } from '../context/BoardContext';
 import KanbanColumn from '../components/KanbanColumn';
 import { sortPinnedTasks } from '../lib/tasks';
+import { useColumnWidths } from '../lib/useColumnWidths';
+import { DEFAULT_COLUMN_WIDTH } from '../lib/columnWidths';
 
 export default function BoardPage() {
   const {
@@ -14,6 +16,7 @@ export default function BoardPage() {
     categories,
   } = useBoard();
   const [collapsed, setCollapsed] = useState({});
+  const { widths, resize, commit } = useColumnWidths();
   const [draggingId, setDraggingId] = useState(null);
   const [dropColumn, setDropColumn] = useState(null);
 
@@ -49,7 +52,10 @@ export default function BoardPage() {
             key={column.id}
             column={column}
             cards={filteredTasks.filter(task => task.column === column.id)}
+            width={widths[column.id] || DEFAULT_COLUMN_WIDTH}
             collapsed={Boolean(collapsed[column.id])}
+            onResize={next => resize(column.id, next)}
+            onResizeCommit={commit}
             onToggleCollapsed={() => setCollapsed(current => ({ ...current, [column.id]: !current[column.id] }))}
             onAdd={({ title, images }) => addTask({ title, images, category: activeCategory, column: column.id })}
             onUpdate={updateTask}
