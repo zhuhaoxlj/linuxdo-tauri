@@ -4,6 +4,7 @@ import KanbanCard from './KanbanCard';
 import ImageThumbnail from './ImageThumbnail';
 import ColumnResizer from './ColumnResizer';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
+import { taskRecordId } from '../../sync/workspace';
 
 export default function KanbanColumn({
   column,
@@ -15,6 +16,9 @@ export default function KanbanColumn({
   onUpdate,
   onDelete,
   onDragStart,
+  onDragEnd,
+  scheduledByTask,
+  onSchedule,
   onResize,
   onResizeCommit,
   onDropOnColumn,
@@ -86,6 +90,9 @@ export default function KanbanColumn({
                 onUpdate={onUpdate}
                 onDelete={onDelete}
                 onDragStart={onDragStart}
+                onDragEnd={onDragEnd}
+                scheduledBlocks={scheduledByTask.get(taskRecordId(card)) || []}
+                onSchedule={onSchedule}
                 onDropOnCard={onDropOnCard}
               />
             ))}

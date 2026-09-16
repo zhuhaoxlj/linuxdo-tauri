@@ -75,7 +75,7 @@
 .app-shell .app-sidebar-footer p { margin: 0; }
 .app-shell :focus-visible { outline: 2px solid #4974bb; outline-offset: 3px; }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .app-shell > .app-sidebar { width: 72px; flex-basis: 72px; }
   .app-shell .app-brand { min-height: 74px; display: grid; place-items: center; padding: 12px; }
   .app-shell .app-brand h1, .app-shell .app-brand p { display: none; }

@@ -1,7 +1,7 @@
 import { downloadBlob, mutationBatches, pullChanges, pushMutations, uploadBlob } from './api';
 import { decryptAttachment, decryptNote, encryptAttachment, encryptNote, fromBase64, sha256Hex } from './crypto';
 import { acknowledgeMutation, getAttachment, listOutbox, listPendingAttachments, listRecords, markAttachmentUploaded, rebaseMutation, saveAttachment, savePulled, saveRecordAndMutation } from './database';
-import { noteToRecord, resolveConflict, taskToRecord } from './workspace';
+import { dayGoalToRecord, noteToRecord, resolveConflict, scheduleToRecord, taskToRecord } from './workspace';
 
 export async function queueRecord(config, record, images) {
   const prepared = images ? await withImageAttachments(config, record, images) : record;
@@ -19,6 +19,14 @@ export async function queueWorkspaceSnapshot(config, snapshot, knownRecords = []
   }
   for (const note of snapshot.notes) {
     const record = noteToRecord(note);
+    if (!known.has(record.id) || record.updatedAt > known.get(record.id).updatedAt) { await queueRecord(config, record); queued += 1; }
+  }
+  for (const block of snapshot.schedules || []) {
+    const record = scheduleToRecord(block);
+    if (!known.has(record.id) || record.updatedAt > known.get(record.id).updatedAt) { await queueRecord(config, record); queued += 1; }
+  }
+  for (const goal of snapshot.dayGoals || []) {
+    const record = dayGoalToRecord(goal);
     if (!known.has(record.id) || record.updatedAt > known.get(record.id).updatedAt) { await queueRecord(config, record); queued += 1; }
   }
   for (const record of snapshot.tombstones || []) {

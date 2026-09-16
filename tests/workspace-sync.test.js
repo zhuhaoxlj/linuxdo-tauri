@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detachWorkspace, mergeWorkspace, noteToRecord, recordToNote, recordToTask, resolveConflict, taskToRecord } from '../src/modules/sync/workspace.js';
+import { dayGoalToRecord, detachWorkspace, mergeWorkspace, noteToRecord, recordToDayGoal, recordToNote, recordToSchedule, recordToTask, resolveConflict, scheduleToRecord, taskToRecord } from '../src/modules/sync/workspace.js';
 import { decryptNote, generatePairingKeyPair, openPairingEnvelope, sealPairingEnvelope } from '../src/modules/sync/crypto.js';
 import { acknowledgedDirtyIds } from '../src/modules/sync/pending.js';
 
@@ -13,6 +13,48 @@ test('desktop cards and notes map to the shared encrypted workspace contract', (
   assert.equal(recordToTask(card).category, 'work');
   assert.equal(note.id, 'linuxdo-note:n1');
   assert.equal(recordToNote(note).content, '# 正文');
+});
+
+test('schedule and day-goal records are independent of their board card', () => {
+  const schedule = {
+    id: 'block-1', taskId: 'linuxdo-board:42', plannedStart: 1_000, plannedEnd: 3_601_000,
+    status: 'pending', createdAt: '2026-09-16T00:00:00Z', updatedAt: '2026-09-16T00:00:00Z',
+  };
+  const goal = { date: '2026-09-16', minutes: 450, updatedAt: '2026-09-16T00:00:00Z' };
+  const blockRecord = scheduleToRecord(schedule);
+  const goalRecord = dayGoalToRecord(goal);
+  assert.equal(blockRecord.id, 'linuxdo-schedule:block-1');
+  assert.equal(blockRecord.taskId, schedule.taskId);
+  assert.equal(goalRecord.id, 'linuxdo-day-goal:2026-09-16');
+  assert.equal(recordToSchedule(blockRecord).plannedEnd, schedule.plannedEnd);
+  assert.equal(recordToDayGoal(goalRecord).minutes, 450);
+
+  const merged = mergeWorkspace({ tasks: [], notes: [], schedules: [], dayGoals: [], tombstones: [] }, [blockRecord, goalRecord]);
+  assert.equal(merged.notes.length, 0);
+  assert.equal(merged.schedules[0].id, schedule.id);
+  assert.equal(merged.dayGoals[0].date, goal.date);
+  const detached = detachWorkspace(merged);
+  assert.equal(detached.schedules[0].taskId, schedule.taskId);
+  assert.equal(detached.schedules[0].serverVersion, undefined);
+});
+
+test('schedule and daily-goal conflict copies stay identifiable after synchronization', () => {
+  const block = { id: 'copy', syncId: 'conflict:block', taskId: 'linuxdo-board:42',
+    plannedStart: 1000, plannedEnd: 2000, status: 'pending', conflictOf: 'linuxdo-schedule:original' };
+  const goal = { date: '2026-09-16', syncId: 'conflict:goal', minutes: 120,
+    conflictOf: 'linuxdo-day-goal:2026-09-16' };
+  assert.equal(recordToSchedule(scheduleToRecord(block)).conflictOf, block.conflictOf);
+  assert.equal(recordToDayGoal(dayGoalToRecord(goal)).conflictOf, goal.conflictOf);
+  const merged = mergeWorkspace({ tasks: [], notes: [], schedules: [], dayGoals: [], tombstones: [] },
+    [scheduleToRecord(block), dayGoalToRecord(goal)]);
+  assert.equal(merged.schedules[0].conflictOf, block.conflictOf);
+  assert.equal(merged.dayGoals[0].conflictOf, goal.conflictOf);
+});
+
+test('unknown encrypted record types are not turned into knowledge notes', () => {
+  const current = { tasks: [], notes: [], schedules: [], dayGoals: [], tombstones: [] };
+  const merged = mergeWorkspace(current, [{ id: 'future:1', kind: 'future_kind', updatedAt: 3_000 }]);
+  assert.deepEqual(merged, current);
 });
 
 test('newer remote records replace the current UI data and tombstones remove it', () => {

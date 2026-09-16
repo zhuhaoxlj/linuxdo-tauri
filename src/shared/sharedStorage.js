@@ -126,10 +126,36 @@ export function writeSharedValue(key, value) {
 
 export const removeSharedValue = key => writeSharedValue(key, null);
 
+const mirrorQueues = new Map();
+
+function enqueueMirror(key, value) {
+  const previous = mirrorQueues.get(key) || Promise.resolve();
+  const current = previous.catch(() => undefined).then(() => invoke('shared_storage_put', { key, value }));
+  mirrorQueues.set(key, current);
+  current.finally(() => {
+    if (mirrorQueues.get(key) === current) mirrorQueues.delete(key);
+  }).catch(() => undefined);
+  return current;
+}
+
+export async function writeSharedValueConfirmed(key, value) {
+  const previous = localStorage.getItem(key);
+  localStorage.setItem(key, value);
+  if (!isSharedKey(key) || !bridgeAvailable()) return;
+  try {
+    await enqueueMirror(key, value);
+  } catch (error) {
+    if (localStorage.getItem(key) === value) {
+      if (previous == null) localStorage.removeItem(key);
+      else localStorage.setItem(key, previous);
+    }
+    throw new Error(`共享文件保存失败：${error}`);
+  }
+}
+
 function mirrorEntry(key, value) {
   if (!isSharedKey(key) || !bridgeAvailable()) return;
-  // 顺序写入：Rust 侧是同步命令，按 IPC 顺序串行执行
-  invoke('shared_storage_put', { key, value }).catch(error => {
+  enqueueMirror(key, value).catch(error => {
     console.error('共享存储回写失败：', key, error);
   });
 }

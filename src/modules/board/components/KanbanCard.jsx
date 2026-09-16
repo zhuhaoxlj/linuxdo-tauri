@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Copy, MoreHorizontal, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
+import { CalendarPlus, Clock3, Copy, MoreHorizontal, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 import { copyCardContent } from '../lib/clipboardContent';
 import { linkSegments, openLinkFromEvent } from '../lib/links';
@@ -8,7 +8,7 @@ import ImageThumbnail from './ImageThumbnail';
 
 const copyMessages = { copying: '正在复制…', copied: '已复制到剪贴板', failed: '复制失败，请重试' };
 
-export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDropOnCard }) {
+export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDragEnd, onDropOnCard, scheduledBlocks = [], onSchedule }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [pasteError, setPasteError] = useState('');
@@ -133,6 +133,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
       data-task-id={task.id}
       draggable={!editing && !menuOpen}
       onDragStart={event => onDragStart(event, task.id)}
+      onDragEnd={onDragEnd}
       onDragOver={event => event.preventDefault()}
       onDrop={event => onDropOnCard(event, task.id)}
       onDoubleClick={event => {
@@ -141,6 +142,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
       }}
     >
       {task.pinned && <span className="kanban-pin-badge"><Pin size={12} />已置顶</span>}
+      {scheduledBlocks.length > 0 && <span className="kanban-schedule-badge"><Clock3 size={12} />{new Date(scheduledBlocks[0].plannedStart).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}{scheduledBlocks.length > 1 ? ` · 共 ${scheduledBlocks.length} 次` : ''}</span>}
       {editing ? (
         <>
           <textarea
@@ -243,6 +245,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
             <button type="button" role="menuitem" onClick={startEditing}>
               <Pencil size={14} />编辑
             </button>
+            {task.column !== 'done' && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSchedule(task.id); }}><CalendarPlus size={14} />安排时间</button>}
             <button type="button" role="menuitem" onClick={() => {
               if (editing) save();
               setMenuOpen(false);

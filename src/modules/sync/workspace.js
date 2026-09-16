@@ -68,6 +68,66 @@ export function noteToRecord(note, overrides = {}) {
   };
 }
 
+export function scheduleToRecord(block, overrides = {}) {
+  return {
+    id: block.syncId || `linuxdo-schedule:${block.id}`,
+    kind: 'schedule_block',
+    title: '', body: '', tags: [], pinned: false, attachments: [],
+    taskId: block.taskId,
+    plannedStart: block.plannedStart,
+    plannedEnd: block.plannedEnd,
+    actualStart: block.actualStart ?? null,
+    actualEnd: block.actualEnd ?? null,
+    executionStatus: block.status,
+    cancelReason: block.cancelReason || '',
+    conflictOf: block.conflictOf || null,
+    trashedAt: null,
+    createdAt: timestamp(block.createdAt),
+    updatedAt: timestamp(block.updatedAt || block.createdAt),
+    serverVersion: Number(block.serverVersion) || 0,
+    syncState: block.syncState || 'pending',
+    ...overrides,
+  };
+}
+
+export function dayGoalToRecord(goal, overrides = {}) {
+  return {
+    id: goal.syncId || `linuxdo-day-goal:${goal.date}`,
+    kind: 'day_goal',
+    title: '', body: '', tags: [], pinned: false, attachments: [],
+    goalDate: goal.date,
+    goalMinutes: goal.minutes,
+    conflictOf: goal.conflictOf || null,
+    trashedAt: null,
+    createdAt: timestamp(goal.createdAt || goal.updatedAt),
+    updatedAt: timestamp(goal.updatedAt || goal.createdAt),
+    serverVersion: Number(goal.serverVersion) || 0,
+    syncState: goal.syncState || 'pending',
+    ...overrides,
+  };
+}
+
+export function recordToSchedule(record) {
+  return {
+    id: localId(record.id, 'linuxdo-schedule:'), syncId: record.id,
+    taskId: record.taskId,
+    plannedStart: Number(record.plannedStart), plannedEnd: Number(record.plannedEnd),
+    actualStart: record.actualStart ?? null, actualEnd: record.actualEnd ?? null,
+    status: record.executionStatus || 'pending', cancelReason: record.cancelReason || '',
+    conflictOf: record.conflictOf || null,
+    createdAt: isoTime(record.createdAt), updatedAt: isoTime(record.updatedAt),
+    serverVersion: record.serverVersion || 0, syncState: record.syncState || 'clean',
+  };
+}
+
+export function recordToDayGoal(record) {
+  return {
+    date: record.goalDate, syncId: record.id, minutes: Number(record.goalMinutes), conflictOf: record.conflictOf || null,
+    createdAt: isoTime(record.createdAt), updatedAt: isoTime(record.updatedAt),
+    serverVersion: record.serverVersion || 0, syncState: record.syncState || 'clean',
+  };
+}
+
 export function recordToTask(record, images = []) {
   return {
     id: localId(record.id, 'linuxdo-board:'),
@@ -112,11 +172,16 @@ export function recordToNote(record) {
 export function mergeWorkspace(current, records, imageMap = new Map(), protectedIds = new Set()) {
   const tasks = new Map(current.tasks.map(task => [taskRecordId(task), task]));
   const notes = new Map(current.notes.map(note => [noteRecordId(note), note]));
+  const schedules = new Map((current.schedules || []).map(block => [block.syncId || `linuxdo-schedule:${block.id}`, block]));
+  const dayGoals = new Map((current.dayGoals || []).map(goal => [goal.syncId || `linuxdo-day-goal:${goal.date}`, goal]));
   const tombstones = new Map((current.tombstones || []).map(record => [record.id, record]));
+
+  const targets = { board_card: tasks, note: notes, schedule_block: schedules, day_goal: dayGoals };
 
   for (const record of records) {
     if (protectedIds.has(record.id)) continue;
-    const target = record.kind === 'board_card' ? tasks : notes;
+    const target = targets[record.kind || 'note'];
+    if (!target) continue;
     const local = target.get(record.id);
     const deleted = tombstones.get(record.id);
     const localVersion = Math.max(Number(local?.serverVersion) || 0, Number(deleted?.serverVersion) || 0);
@@ -132,17 +197,21 @@ export function mergeWorkspace(current, records, imageMap = new Map(), protected
       continue;
     }
     tombstones.delete(record.id);
-    target.set(record.id, record.kind === 'board_card'
+    const mapped = record.kind === 'board_card'
       ? recordToTask(record, imageMap.get(record.id) || local?.images || [])
-      : recordToNote(record));
+      : record.kind === 'schedule_block' ? recordToSchedule(record)
+        : record.kind === 'day_goal' ? recordToDayGoal(record) : recordToNote(record);
+    target.set(record.id, mapped);
   }
-  return { tasks: [...tasks.values()], notes: [...notes.values()], tombstones: [...tombstones.values()] };
+  return { tasks: [...tasks.values()], notes: [...notes.values()], schedules: [...schedules.values()], dayGoals: [...dayGoals.values()], tombstones: [...tombstones.values()] };
 }
 
 export function detachWorkspace(current) {
   return {
     tasks: current.tasks.map(removeSyncMetadata),
     notes: current.notes.map(removeSyncMetadata),
+    schedules: (current.schedules || []).map(removeSyncMetadata),
+    dayGoals: (current.dayGoals || []).map(removeSyncMetadata),
     tombstones: [],
   };
 }

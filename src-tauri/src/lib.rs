@@ -1,5 +1,6 @@
 mod api;
 mod auth;
+mod reminders;
 mod shared_storage;
 mod site_session;
 
@@ -9,7 +10,13 @@ use shared_storage::SharedStorageLock;
 use site_session::{SessionTask, SiteReply, SiteSession};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Mutex,
+    Arc, Mutex,
+};
+#[cfg(desktop)]
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter,
 };
 use tauri::{Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -196,6 +203,15 @@ fn site_response(
     session.receive(&window, &id, reply)
 }
 
+#[cfg(desktop)]
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -212,24 +228,102 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             #[cfg(desktop)]
             {
                 let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/128x128.png"))?;
                 if let Some(window) = app.get_webview_window("main") {
-                    window.set_icon(icon)?;
+                    window.set_icon(icon.clone())?;
                 }
+                let open = MenuItem::with_id(app, "open", "打开 LinuxDo", true, None::<&str>)?;
+                let quit = MenuItem::with_id(app, "quit", "退出 LinuxDo", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&open, &quit])?;
+                match TrayIconBuilder::new()
+                    .icon(icon)
+                    .tooltip("LinuxDo · 后台提醒")
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "open" => show_main_window(app),
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if matches!(
+                            event,
+                            TrayIconEvent::Click {
+                                button: MouseButton::Left,
+                                button_state: MouseButtonState::Up,
+                                ..
+                            }
+                        ) {
+                            show_main_window(tray.app_handle());
+                        }
+                    })
+                    .build(app)
+                {
+                    Ok(_) => {
+                        app.state::<Arc<reminders::ReminderRuntime>>()
+                            .tray_ready
+                            .store(true, Ordering::SeqCst);
+                    }
+                    Err(error) => {
+                        *app.state::<Arc<reminders::ReminderRuntime>>()
+                            .last_error
+                            .lock()
+                            .unwrap() = Some(format!("系统托盘不可用：{error}"));
+                    }
+                }
+                #[cfg(target_os = "linux")]
+                if let Err(error) = notify_rust::get_server_information() {
+                    *app.state::<Arc<reminders::ReminderRuntime>>()
+                        .last_error
+                        .lock()
+                        .unwrap() = Some(format!("系统通知服务不可用：{error}"));
+                }
+                reminders::start(
+                    app.handle().clone(),
+                    app.state::<Arc<reminders::ReminderRuntime>>()
+                        .inner()
+                        .clone(),
+                );
             }
             Ok(())
         })
         .manage(AppState::default())
         .manage(SiteSession::default())
         .manage(SharedStorageLock::default())
+        .manage(Arc::new(reminders::ReminderRuntime::default()))
         .on_window_event(|window, event| {
-            if window.label() == "main"
-                && matches!(event, tauri::WindowEvent::CloseRequested { .. })
-            {
-                window.app_handle().exit(0);
+            #[cfg(desktop)]
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let runtime = window
+                        .app_handle()
+                        .state::<Arc<reminders::ReminderRuntime>>();
+                    if runtime.tray_ready.load(Ordering::SeqCst) {
+                        if !runtime.tray_announced.load(Ordering::SeqCst) {
+                            if let Err(error) =
+                                reminders::announce_background(window.app_handle(), &runtime)
+                            {
+                                *runtime.last_error.lock().unwrap() = Some(error);
+                                let _ = window.emit(
+                                    "tray-unavailable",
+                                    "系统通知不可用，请检查通知服务后重试",
+                                );
+                                return;
+                            }
+                            runtime.tray_announced.store(true, Ordering::SeqCst);
+                        }
+                        let _ = window.hide();
+                    } else {
+                        let _ = window.emit(
+                            "tray-unavailable",
+                            "系统托盘不可用，请保持窗口打开以接收提醒",
+                        );
+                    }
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -247,6 +341,8 @@ pub fn run() {
             shared_storage::shared_storage_save,
             shared_storage::shared_storage_put,
             shared_storage::shared_storage_backup,
+            reminders::reminder_status,
+            reminders::take_reminder_open,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

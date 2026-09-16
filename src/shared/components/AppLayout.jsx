@@ -1,13 +1,30 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import '../../modules/board/board.css';
 import '../app-shell.css';
 import { useBoard } from '../../modules/board/context/BoardContext';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 export default function AppLayout({ children }) {
-  const { categories, activeCategory, setActiveCategory } = useBoard();
+  const { categories, activeCategory, setActiveCategory, setReminderOpen } = useBoard();
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return undefined;
+    let active = true;
+    let unlisten;
+    const open = id => {
+      if (!active || !id) return;
+      setReminderOpen(id);
+      navigate('/board');
+    };
+    listen('reminder-open', event => { open(event.payload); void invoke('take_reminder_open'); })
+      .then(dispose => { if (active) unlisten = dispose; else dispose(); });
+    invoke('take_reminder_open').then(open);
+    return () => { active = false; unlisten?.(); };
+  }, [navigate, setReminderOpen]);
 
   const handleCategoryClick = (categoryId) => {
     if (categoryId === 'linuxdo') {
