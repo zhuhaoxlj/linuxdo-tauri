@@ -3,10 +3,11 @@ import { clearVault, loadVault } from '../../sync/database';
 import { hydrateCardImages, queueRecord, queueWorkspaceSnapshot, synchronize } from '../../sync/engine';
 import { listDevices, revokeDevice } from '../../sync/api';
 import { approvePairingCode, claimPairingSession, createPairingSession } from '../../sync/vault';
-import { dayGoalToRecord, detachWorkspace, mergeWorkspace, noteToRecord, scheduleToRecord, taskRecordId, taskToRecord } from '../../sync/workspace';
+import { dayGoalToRecord, detachWorkspace, mergeWorkspace, noteToRecord, reconcileRemoteSchedules, scheduleToRecord, taskRecordId, taskToRecord } from '../../sync/workspace';
 import { acknowledgedDirtyIds } from '../../sync/pending';
 import { writeSharedValue, writeSharedValueConfirmed } from '../../../shared/sharedStorage';
-import { cancelFutureBlocks, dateBounds, DEFAULT_BLOCK_MS } from '../lib/schedule';
+import { cancelFutureBlocks, dateBounds, DEFAULT_BLOCK_MS, taskCompletionTime } from '../lib/schedule';
+import { createWorkspaceQueue, retainConcurrentNoteEdits } from '../lib/workspaceQueue';
 
 const BoardContext = createContext();
 
@@ -60,6 +61,8 @@ export function BoardProvider({ children }) {
   const [pairing, setPairing] = useState();
   const [pairedDevices, setPairedDevices] = useState([]);
   const workspaceRef = useRef({ tasks: [], notes: [], schedules: [], dayGoals: [], tombstones: [] });
+  const workspaceQueue = useRef(createWorkspaceQueue());
+  const savingSchedule = useRef(false);
   const syncLock = useRef(false);
   const syncTimer = useRef();
   const queueChains = useRef(new Map());
@@ -104,15 +107,11 @@ export function BoardProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    if (!loading && storageReady) {
+    if (!loading && storageReady && !savingSchedule.current) {
       try {
         // 看板与知识库笔记同时写入本机与开发版/正式版共享文件
         writeSharedValue(STORAGE_KEY, JSON.stringify({
-          tasks,
-          notes,
-          schedules,
-          dayGoals,
-          tombstones,
+          ...workspaceRef.current,
           activeCategory
         }));
         setStorageError('');
@@ -122,10 +121,6 @@ export function BoardProvider({ children }) {
       }
     }
   }, [tasks, notes, schedules, dayGoals, tombstones, activeCategory, loading, storageReady]);
-
-  useEffect(() => {
-    workspaceRef.current = { tasks, notes, schedules, dayGoals, tombstones };
-  }, [tasks, notes, schedules, dayGoals, tombstones]);
 
   useEffect(() => {
     loadVault()
@@ -184,6 +179,7 @@ export function BoardProvider({ children }) {
     setSyncError('');
     const task = (async () => {
       let result = await synchronize(config);
+      await workspaceQueue.current.idle();
       if (importLocal && await queueWorkspaceSnapshot(result.config, workspaceRef.current, result.records)) {
         result = await synchronize(result.config);
       }
@@ -192,17 +188,25 @@ export function BoardProvider({ children }) {
         dirtySyncRevisions.current.delete(id);
         queuedSyncRevisions.current.delete(id);
       }
-      const protectedIds = new Set([...result.pendingIds, ...dirtySyncRevisions.current.keys()]);
-      const merged = mergeWorkspace(workspaceRef.current, result.records, imageMap, protectedIds);
+      await queueWorkspaceMutation(async () => {
+        if (generation !== syncGeneration.current || disconnecting.current) return;
+        const protectedIds = new Set([...result.pendingIds, ...dirtySyncRevisions.current.keys()]);
+        const { workspace: merged, changedRecords } = reconcileRemoteSchedules(
+          mergeWorkspace(workspaceRef.current, result.records, imageMap, protectedIds));
+        if (changedRecords.length) {
+          await commitScheduledWorkspace(merged, changedRecords);
+        } else {
+          workspaceRef.current = merged;
+          setTasks(merged.tasks.map(withColumn));
+          setNotes(merged.notes);
+          setSchedules(merged.schedules);
+          setDayGoals(merged.dayGoals);
+          setTombstones(merged.tombstones);
+        }
+      });
       if (generation !== syncGeneration.current || disconnecting.current) return;
-      workspaceRef.current = merged;
-      setTasks(merged.tasks.map(withColumn));
-      setNotes(merged.notes);
-      setSchedules(merged.schedules);
-      setDayGoals(merged.dayGoals);
-      setTombstones(merged.tombstones);
       setSyncConfig(result.config);
-      setSyncStatus(result.pending ? 'pending' : 'synced');
+      setSyncStatus(result.pending || dirtySyncRevisions.current.size ? 'pending' : 'synced');
       setLastSyncedAt(Date.now());
       if (result.pending) scheduleSync(generation);
     })().catch(error => {
@@ -220,6 +224,16 @@ export function BoardProvider({ children }) {
     if (generation !== syncGeneration.current || disconnecting.current) return;
     clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => void performSync(undefined, false), 700);
+  }
+
+  function queueWorkspaceMutation(operation) {
+    return workspaceQueue.current.run(operation);
+  }
+
+  function queueBoardEdit(operation) {
+    return queueWorkspaceMutation(operation).catch(error => {
+      setStorageError(error.message || '本地保存失败，请重试');
+    });
   }
 
   function queueLocal(record, images) {
@@ -250,22 +264,32 @@ export function BoardProvider({ children }) {
 
   async function commitScheduledWorkspace(next, changedRecords) {
     if (!storageReady) throw new Error('正在读取本地数据，请稍后再试');
+    const beforeNotes = workspaceRef.current.notes;
+    savingSchedule.current = true;
     try {
       await writeSharedValueConfirmed(STORAGE_KEY, JSON.stringify({ ...next, activeCategory }));
+      // Note inputs remain responsive while the native write is pending.
+      const committed = retainConcurrentNoteEdits(next, beforeNotes, workspaceRef.current.notes);
+      workspaceRef.current = committed;
+      setTasks(committed.tasks);
+      setNotes(committed.notes);
+      setSchedules(committed.schedules);
+      setDayGoals(committed.dayGoals);
+      setTombstones(committed.tombstones);
+      changedRecords.forEach(record => queueLocal(record));
     } catch (error) {
       setStorageError(error.message || '排期保存失败');
+      if (workspaceRef.current.notes !== beforeNotes) {
+        try { writeSharedValue(STORAGE_KEY, JSON.stringify({ ...workspaceRef.current, activeCategory })); }
+        catch (saveError) { setStorageError(saveError.message || '笔记保存失败'); }
+      }
       throw error;
+    } finally {
+      savingSchedule.current = false;
     }
-    workspaceRef.current = next;
-    setTasks(next.tasks);
-    setNotes(next.notes);
-    setSchedules(next.schedules);
-    setDayGoals(next.dayGoals);
-    setTombstones(next.tombstones);
-    changedRecords.forEach(record => queueLocal(record));
   }
 
-  const addSchedule = async (taskId, plannedStart, duration = DEFAULT_BLOCK_MS) => {
+  const addSchedule = (taskId, plannedStart, duration = DEFAULT_BLOCK_MS) => queueWorkspaceMutation(async () => {
     const task = workspaceRef.current.tasks.find(item => item.id === taskId);
     if (!task || task.column === 'done') throw new Error('无法安排已完成或不存在的任务');
     if (!Number.isFinite(plannedStart) || !Number.isFinite(duration) || duration < 15 * 60_000) throw new Error('时间范围无效');
@@ -277,9 +301,9 @@ export function BoardProvider({ children }) {
     const next = { ...workspaceRef.current, schedules: [...workspaceRef.current.schedules, block] };
     await commitScheduledWorkspace(next, [scheduleToRecord(block)]);
     return block;
-  };
+  });
 
-  const updateSchedule = async (id, updates) => {
+  const updateSchedule = (id, updates) => queueWorkspaceMutation(async () => {
     const block = workspaceRef.current.schedules.find(item => item.id === id);
     if (!block) return;
     const updated = { ...block, ...updates, updatedAt: new Date().toISOString() };
@@ -287,9 +311,9 @@ export function BoardProvider({ children }) {
       throw new Error('结束时间必须晚于开始时间');
     }
     await commitScheduledWorkspace({ ...workspaceRef.current, schedules: workspaceRef.current.schedules.map(item => item.id === id ? updated : item) }, [scheduleToRecord(updated)]);
-  };
+  });
 
-  const removeSchedule = async id => {
+  const removeSchedule = id => queueWorkspaceMutation(async () => {
     const block = workspaceRef.current.schedules.find(item => item.id === id);
     if (!block) return;
     const deletedAt = Date.now();
@@ -300,9 +324,9 @@ export function BoardProvider({ children }) {
       tombstones: [...workspaceRef.current.tombstones.filter(item => item.id !== tombstone.id), tombstone],
     };
     await commitScheduledWorkspace(next, [tombstone]);
-  };
+  });
 
-  const setDayGoal = async (date, minutes) => {
+  const setDayGoal = (date, minutes) => queueWorkspaceMutation(async () => {
     dateBounds(date);
     if (minutes != null && (!Number.isInteger(minutes) || minutes < 15 || minutes > 1440 || minutes % 15)) throw new Error('每日目标应为 15 分钟至 24 小时');
     const goalsForDate = workspaceRef.current.dayGoals.filter(item => item.date === date);
@@ -323,9 +347,9 @@ export function BoardProvider({ children }) {
     await commitScheduledWorkspace({ ...workspaceRef.current,
       dayGoals: [...workspaceRef.current.dayGoals.filter(item => item !== current), goal],
     }, [dayGoalToRecord(goal)]);
-  };
+  });
 
-  const startSchedule = async id => {
+  const startSchedule = id => queueWorkspaceMutation(async () => {
     const block = workspaceRef.current.schedules.find(item => item.id === id);
     if (!block || block.status !== 'pending') return;
     const task = workspaceRef.current.tasks.find(item => taskRecordId(item) === block.taskId);
@@ -337,9 +361,9 @@ export function BoardProvider({ children }) {
       schedules: workspaceRef.current.schedules.map(item => item.id === id ? started : item),
       tasks: workspaceRef.current.tasks.map(item => item.id === task.id ? moved : item),
     }, [scheduleToRecord(started), taskToRecord(moved)]);
-  };
+  });
 
-  const finishSchedule = async (id, completeTask = false) => {
+  const finishSchedule = (id, completeTask = false) => queueWorkspaceMutation(async () => {
     const block = workspaceRef.current.schedules.find(item => item.id === id);
     if (!block || block.status !== 'running') return;
     const task = workspaceRef.current.tasks.find(item => taskRecordId(item) === block.taskId);
@@ -347,13 +371,13 @@ export function BoardProvider({ children }) {
     const finished = { ...block, status: 'finished', actualEnd: time, updatedAt: new Date(time).toISOString() };
     let blocks = workspaceRef.current.schedules.map(item => item.id === id ? finished : item);
     if (completeTask) blocks = cancelFutureBlocks(blocks, block.taskId, time);
-    const moved = completeTask && task ? { ...task, column: 'done', completed: true, updatedAt: new Date(time).toISOString() } : null;
+    const moved = completeTask && task ? { ...task, column: 'done', completed: true, completedAt: taskCompletionTime(task, 'done', time), updatedAt: new Date(time).toISOString() } : null;
     await commitScheduledWorkspace({ ...workspaceRef.current, schedules: blocks,
       tasks: moved ? workspaceRef.current.tasks.map(item => item.id === task.id ? moved : item) : workspaceRef.current.tasks,
     }, [scheduleToRecord(finished), ...blocks.filter((item, index) => item !== workspaceRef.current.schedules[index] && item.id !== id).map(scheduleToRecord), ...(moved ? [taskToRecord(moved)] : [])]);
-  };
+  });
 
-  const addTask = (task) => {
+  const addTask = task => queueWorkspaceMutation(() => {
     const column = task.column || 'inbox';
     const created = withColumn({
       id: Date.now().toString(),
@@ -361,6 +385,7 @@ export function BoardProvider({ children }) {
       updatedAt: new Date().toISOString(),
       ...task,
       column,
+      completedAt: column === 'done' ? task.completedAt ?? Date.now() : null,
       images: task.images || [],
       completed: column === 'done',
     });
@@ -368,19 +393,21 @@ export function BoardProvider({ children }) {
     workspaceRef.current = { ...workspaceRef.current, tasks: nextTasks };
     setTasks(nextTasks);
     queueLocal(taskToRecord(created), created.images);
-  };
+  });
 
-  const updateTask = (id, updates) => {
+  const applyTaskUpdate = async (id, updates) => {
     const current = workspaceRef.current.tasks.find(task => task.id === id);
     if (!current) return;
-    const next = withColumn({ ...current, ...updates, updatedAt: new Date().toISOString() });
+    const now = Date.now();
+    const next = withColumn({ ...current, ...updates, updatedAt: new Date(now).toISOString() });
+    next.completedAt = taskCompletionTime(current, next.column, now);
     const saved = { ...next, completed: next.column === 'done' };
     const nextTasks = workspaceRef.current.tasks.map(task => task.id === id ? saved : task);
     if (saved.column === 'done' && current.column !== 'done') {
       const blocks = cancelFutureBlocks(workspaceRef.current.schedules, taskRecordId(saved));
-      void commitScheduledWorkspace({ ...workspaceRef.current, tasks: nextTasks, schedules: blocks }, [
+      await commitScheduledWorkspace({ ...workspaceRef.current, tasks: nextTasks, schedules: blocks }, [
         taskToRecord(saved), ...blocks.filter((block, index) => block !== workspaceRef.current.schedules[index]).map(scheduleToRecord),
-      ]).catch(error => setStorageError(error.message));
+      ]);
       return;
     }
     workspaceRef.current = { ...workspaceRef.current, tasks: nextTasks };
@@ -388,7 +415,9 @@ export function BoardProvider({ children }) {
     queueLocal(taskToRecord(saved), saved.images);
   };
 
-  const deleteTask = (id) => {
+  const updateTask = (id, updates) => queueBoardEdit(() => applyTaskUpdate(id, updates));
+
+  const deleteTask = id => queueBoardEdit(async () => {
     const current = workspaceRef.current.tasks.find(task => task.id === id);
     if (!current) return;
     const deletedAt = Date.now();
@@ -397,37 +426,38 @@ export function BoardProvider({ children }) {
     const removed = workspaceRef.current.schedules.filter(block => block.taskId === taskRecordId(current));
     const deletedRecords = [tombstone, ...removed.map(block => scheduleToRecord(block, { trashedAt: deletedAt, updatedAt: deletedAt }))];
     const deletedIds = new Set(deletedRecords.map(record => record.id));
-    void commitScheduledWorkspace({ ...workspaceRef.current, tasks: nextTasks,
+    await commitScheduledWorkspace({ ...workspaceRef.current, tasks: nextTasks,
       schedules: workspaceRef.current.schedules.filter(block => block.taskId !== taskRecordId(current)),
       tombstones: [...workspaceRef.current.tombstones.filter(item => !deletedIds.has(item.id)), ...deletedRecords],
-    }, deletedRecords).catch(error => setStorageError(error.message));
-  };
+    }, deletedRecords);
+  });
 
-  const toggleTask = (id) => {
+  const toggleTask = id => queueBoardEdit(() => {
     const current = workspaceRef.current.tasks.find(task => task.id === id);
     if (!current) return;
     const column = current.column === 'done' ? 'inbox' : 'done';
-    updateTask(id, { column, completed: column === 'done' });
-  };
+    return applyTaskUpdate(id, { column, completed: column === 'done' });
+  });
 
-  const moveTask = (id, column, beforeId) => {
+  const moveTask = (id, column, beforeId) => queueBoardEdit(async () => {
     const current = workspaceRef.current.tasks.find(task => task.id === id);
     if (!current) return;
-    const moved = withColumn({ ...current, column, completed: column === 'done', updatedAt: new Date().toISOString() });
+    const now = Date.now();
+    const moved = withColumn({ ...current, column, completed: column === 'done', completedAt: taskCompletionTime(current, column, now), updatedAt: new Date(now).toISOString() });
     const nextTasks = insertTask(workspaceRef.current.tasks.filter(task => task.id !== id), moved, beforeId);
     if (column === 'done' && current.column !== 'done') {
       const blocks = cancelFutureBlocks(workspaceRef.current.schedules, taskRecordId(moved));
-      void commitScheduledWorkspace({ ...workspaceRef.current, tasks: nextTasks, schedules: blocks }, [
+      await commitScheduledWorkspace({ ...workspaceRef.current, tasks: nextTasks, schedules: blocks }, [
         taskToRecord(moved), ...blocks.filter((block, index) => block !== workspaceRef.current.schedules[index]).map(scheduleToRecord),
-      ]).catch(error => setStorageError(error.message));
+      ]);
       return;
     }
     workspaceRef.current = { ...workspaceRef.current, tasks: nextTasks };
     setTasks(nextTasks);
     queueLocal(taskToRecord(moved), moved.images);
-  };
+  });
 
-  const addNote = (note) => {
+  const addNote = note => queueWorkspaceMutation(() => {
     const timestamp = new Date().toISOString();
     const created = { ...note, id: crypto.randomUUID(), createdAt: timestamp, updatedAt: timestamp };
     const nextNotes = [...workspaceRef.current.notes, created];
@@ -435,7 +465,7 @@ export function BoardProvider({ children }) {
     setNotes(nextNotes);
     queueLocal(noteToRecord(created));
     return created;
-  };
+  });
 
   const updateNote = (id, updates) => {
     const current = workspaceRef.current.notes.find(note => note.id === id);
@@ -447,7 +477,7 @@ export function BoardProvider({ children }) {
     queueLocal(noteToRecord(updated));
   };
 
-  const deleteNote = (id) => {
+  const deleteNote = id => queueWorkspaceMutation(() => {
     const current = workspaceRef.current.notes.find(note => note.id === id);
     if (!current) return;
     const deletedAt = Date.now();
@@ -458,7 +488,7 @@ export function BoardProvider({ children }) {
     setNotes(nextNotes);
     setTombstones(nextTombstones);
     queueLocal(tombstone);
-  };
+  });
 
   const beginPairing = async name => {
     if (disconnecting.current) return;
@@ -490,6 +520,7 @@ export function BoardProvider({ children }) {
     setSyncError('');
     setPairing(undefined);
     try {
+      await workspaceQueue.current.idle();
       await Promise.allSettled([syncTask.current, ...queueChains.current.values()]);
       clearTimeout(syncTimer.current);
       queueChains.current.clear();

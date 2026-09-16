@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+use tauri::menu::MenuItem;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::shared_storage;
@@ -18,6 +19,23 @@ pub struct ReminderRuntime {
     pub tray_announced: std::sync::atomic::AtomicBool,
     pub last_error: Mutex<Option<String>>,
     pub pending_open: Mutex<Option<String>>,
+    pub status_item: Mutex<Option<MenuItem<tauri::Wry>>>,
+}
+
+impl ReminderRuntime {
+    pub fn update_status(&self, error: Option<String>) {
+        if let Ok(mut status) = self.last_error.lock() {
+            *status = error.clone();
+        }
+        if let Some(item) = self.status_item.lock().ok().and_then(|item| item.clone()) {
+            let text = if error.is_some() {
+                "提醒状态：异常，请打开看板查看"
+            } else {
+                "提醒状态：正常"
+            };
+            let _ = item.set_text(text);
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -155,6 +173,7 @@ fn notify(
     let handle = notify_rust::Notification::new()
         .summary(title)
         .body(body)
+        .action("default", "打开")
         .show()
         .map_err(|error| format!("系统通知不可用：{error}"))?;
     let app = app.clone();
@@ -174,9 +193,7 @@ fn notify(
             }
         });
     });
-    if let Ok(mut status) = runtime.last_error.lock() {
-        *status = None;
-    }
+    runtime.update_status(None);
     Ok(())
 }
 
@@ -257,9 +274,7 @@ pub fn start(app: AppHandle, runtime: Arc<ReminderRuntime>) {
             .unwrap_or_default();
         loop {
             if let Err(error) = poll(&app, &runtime, &mut delivered) {
-                if let Ok(mut status) = runtime.last_error.lock() {
-                    *status = Some(error);
-                }
+                runtime.update_status(Some(error));
             }
             std::thread::sleep(POLL_INTERVAL);
         }

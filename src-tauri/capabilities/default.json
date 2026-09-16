@@ -9,7 +9,6 @@
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-write-html",
     "clipboard-manager:allow-write-image",
-    "notification:default",
     "deep-link:default",
     "opener:default",
     "allow-start-oauth-flow",

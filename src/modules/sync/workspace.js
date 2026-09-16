@@ -1,3 +1,5 @@
+import { cancelFutureBlocks } from '../board/lib/schedule.js';
+
 const CATEGORY_NAMES = {
   home: '首页',
   life: '生活',
@@ -31,6 +33,7 @@ export function taskToRecord(task, overrides = {}) {
     tags: Array.isArray(task.tags) ? task.tags : [],
     pinned: Boolean(task.pinned),
     boardColumn: ['inbox', 'todo', 'doing', 'done'].includes(task.column) ? task.column : task.completed ? 'done' : 'inbox',
+    completedAt: task.completedAt ?? null,
     category: CATEGORY_NAMES[task.category] || task.category || '首页',
     trashedAt: null,
     createdAt: timestamp(task.createdAt),
@@ -138,6 +141,7 @@ export function recordToTask(record, images = []) {
     pinned: Boolean(record.pinned),
     column: record.boardColumn || 'inbox',
     completed: record.boardColumn === 'done',
+    completedAt: Number.isFinite(record.completedAt) ? record.completedAt : null,
     category: CATEGORY_IDS[record.category] || record.category || 'home',
     images,
     syncAttachments: record.attachments || [],
@@ -204,6 +208,28 @@ export function mergeWorkspace(current, records, imageMap = new Map(), protected
     target.set(record.id, mapped);
   }
   return { tasks: [...tasks.values()], notes: [...notes.values()], schedules: [...schedules.values()], dayGoals: [...dayGoals.values()], tombstones: [...tombstones.values()] };
+}
+
+export function reconcileRemoteSchedules(merged, now = Date.now()) {
+  const completed = new Set(merged.tasks.filter(task => task.column === 'done').map(taskRecordId));
+  const deleted = new Set(merged.tombstones.filter(record => record.kind === 'board_card').map(record => record.id));
+  const original = merged.schedules;
+  let schedules = original;
+  for (const task of merged.tasks.filter(item => completed.has(taskRecordId(item)))) {
+    schedules = cancelFutureBlocks(schedules, taskRecordId(task), Math.min(now, task.completedAt ?? timestamp(task.updatedAt)));
+  }
+  const removed = schedules.filter(block => deleted.has(block.taskId));
+  const deletedRecords = removed.map(block => scheduleToRecord(block, { trashedAt: now, updatedAt: now }));
+  schedules = schedules.filter(block => !deleted.has(block.taskId));
+  const oldById = new Map(original.map(block => [block.id, block]));
+  const changed = schedules.filter(block => block !== oldById.get(block.id)).map(block => scheduleToRecord(block));
+  if (!changed.length && !deletedRecords.length) return { workspace: merged, changedRecords: [] };
+  const deletedIds = new Set(deletedRecords.map(record => record.id));
+  return {
+    workspace: { ...merged, schedules,
+      tombstones: [...merged.tombstones.filter(record => !deletedIds.has(record.id)), ...deletedRecords] },
+    changedRecords: [...changed, ...deletedRecords],
+  };
 }
 
 export function detachWorkspace(current) {

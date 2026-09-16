@@ -52,9 +52,9 @@ export default function KnowledgePage() {
     else deleteDialog.current?.close();
   }, [deleteCandidate]);
 
-  const create = type => {
+  const create = async type => {
     if (!storageReady) return;
-    const note = addNote(createNoteDraft(type, folder || (selectedNote ? noteFolder(selectedNote) : '随手记')));
+    const note = await addNote(createNoteDraft(type, folder || (selectedNote ? noteFolder(selectedNote) : '随手记')));
     setSidebarOpen(false);
     navigate(`/knowledge/${note.id}?edit=1`);
   };

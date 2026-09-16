@@ -1,23 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, Crosshair, Play, Target, Trash2, X } from 'lucide-react';
 import { taskRecordId } from '../../sync/workspace';
-import { addDays, conflictingIds, dateBounds, dayKey, daySegments, intervalMinutes, layoutSegments, snapToQuarter } from '../lib/schedule';
+import { addDays, conflictingIds, dayKey, daySegments, dayTimelineAxis, intervalMinutes, layoutSegments, snapToQuarter } from '../lib/schedule';
 
-const GRID_HEIGHT = 1920;
 const formatClock = value => new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 const localInput = value => {
   const date = new Date(value);
   return `${dayKey(date)}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 };
 const gridTime = (key, minute) => {
-  const date = new Date(dateBounds(key).start);
+  const date = new Date(dayTimelineAxis(key).start);
   date.setHours(0, minute, 0, 0);
   return date.getTime();
-};
-const minuteOfDay = (value, end) => {
-  if (value === end) return 1440;
-  const date = new Date(value);
-  return date.getHours() * 60 + date.getMinutes();
 };
 
 export default function DayTimeline({ date, setDate, tasks, categories, schedules, goals, draggingId, width,
@@ -32,18 +26,19 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
   const scrollRef = useRef(null);
   const gridRef = useRef(null);
   const suppressClick = useRef(false);
+  const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const axis = useMemo(() => dayTimelineAxis(date), [date, timeZone]);
   const taskMap = useMemo(() => new Map(tasks.map(task => [taskRecordId(task), task])), [tasks]);
-  const segments = useMemo(() => daySegments(schedules, date), [schedules, date]);
+  const segments = useMemo(() => daySegments(schedules, date), [schedules, date, timeZone]);
   const laidOut = useMemo(() => layoutSegments(segments), [segments]);
   const conflicts = useMemo(() => conflictingIds(segments), [segments]);
   const goal = goals.find(item => item.date === date && !item.conflictOf) || goals.find(item => item.date === date);
   const conflictingGoals = goals.filter(item => item.date === date && item.conflictOf);
   const planned = intervalMinutes(segments);
   const actual = intervalMinutes(schedules.filter(block => block.actualStart != null && block.actualEnd != null && block.actualEnd > block.actualStart)
-    .map(block => ({ start: Math.max(dateBounds(date).start, block.actualStart), end: Math.min(dateBounds(date).end, block.actualEnd) }))
+    .map(block => ({ start: Math.max(axis.start, block.actualStart), end: Math.min(axis.end, block.actualEnd) }))
     .filter(segment => segment.end > segment.start));
-  const { end: dayEnd } = dateBounds(date);
-  const canceled = schedules.filter(block => block.status === 'canceled' && block.plannedStart < dayEnd && block.plannedEnd > dateBounds(date).start);
+  const canceled = schedules.filter(block => block.status === 'canceled' && block.plannedStart < axis.end && block.plannedEnd > axis.start);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 30_000);
@@ -52,10 +47,10 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
 
   useEffect(() => {
     if (!scrollRef.current) return;
-    const current = dayKey() === date ? new Date().getHours() * 80 : segments.length
-      ? minuteOfDay(segments[0].start, dayEnd) * GRID_HEIGHT / 1440 : 8 * 80;
+    const current = dayKey() === date ? axis.top(Date.now()) : segments.length
+      ? axis.top(segments[0].start) : axis.top(gridTime(date, 8 * 60));
     scrollRef.current.scrollTop = Math.max(0, current - 140);
-  }, [date]);
+  }, [date, timeZone]);
 
   useEffect(() => {
     if (!requestedTaskId) return;
@@ -75,7 +70,7 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
   }, [requestedBlockId, schedules]);
 
   const openBlock = block => {
-    setEditor({ blockId: block.id, taskId: block.taskId, start: localInput(block.plannedStart), end: localInput(block.plannedEnd) });
+    setEditor({ blockId: block.id, taskId: block.taskId, start: localInput(block.plannedStart), end: localInput(block.plannedEnd), originalStart: block.plannedStart, originalEnd: block.plannedEnd });
     setError('');
   };
 
@@ -87,8 +82,12 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
   const save = async event => {
     event.preventDefault();
     const values = new FormData(event.currentTarget);
-    const start = new Date(values.get('plannedStart')).getTime();
-    const end = new Date(values.get('plannedEnd')).getTime();
+    const startValue = values.get('plannedStart');
+    const endValue = values.get('plannedEnd');
+    const start = editor.originalStart != null && startValue === localInput(editor.originalStart)
+      ? editor.originalStart : new Date(startValue).getTime();
+    const end = editor.originalEnd != null && endValue === localInput(editor.originalEnd)
+      ? editor.originalEnd : new Date(endValue).getTime();
     if (!Number.isFinite(start) || !Number.isFinite(end) || end - start < 15 * 60_000) {
       setError('结束时间至少比开始时间晚 15 分钟');
       return;
@@ -112,9 +111,9 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
     const taskId = draggingId || event.dataTransfer.getData('text/plain');
     if (!tasks.some(task => task.id === taskId)) return;
     const rect = gridRef.current.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (event.clientY - rect.top) / GRID_HEIGHT));
-    const minutes = Math.min(1425, Math.round(fraction * 1440 / 15) * 15);
-    void report(() => onAdd(taskId, gridTime(date, minutes)));
+    const fraction = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
+    const minutes = Math.min((axis.end - axis.start) / 60_000 - 15, Math.round(fraction * (axis.end - axis.start) / (15 * 60_000)) * 15);
+    void report(() => onAdd(taskId, axis.start + minutes * 60_000));
   };
 
   const startPointer = (event, block, edge) => {
@@ -125,7 +124,7 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
     let changed = false;
     let next = { plannedStart: block.plannedStart, plannedEnd: block.plannedEnd };
     const move = current => {
-      const delta = Math.round((current.clientY - origin) / (GRID_HEIGHT / 96)) * 15 * 60_000;
+      const delta = Math.round((current.clientY - origin) / 20) * 15 * 60_000;
       if (Math.abs(current.clientY - origin) < 5) return;
       changed = true;
       next = edge === 'end'
@@ -150,7 +149,7 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
   return (
     <aside className="day-timeline" style={{ width }} aria-label="全天时间轴">
       <header className="day-timeline-header">
-        <div className="day-timeline-heading"><CalendarDays size={16} /><strong>{new Date(dateBounds(date).start).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}</strong></div>
+        <div className="day-timeline-heading"><CalendarDays size={16} /><strong>{new Date(axis.start).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' })}</strong></div>
         <div className="day-timeline-nav">
           <button type="button" title="前一天" aria-label="前一天" onClick={() => setDate(addDays(date, -1))}><ChevronLeft size={17} /></button>
           <button type="button" title="回到今天" aria-label="回到今天" onClick={() => setDate(dayKey())}><Crosshair size={15} /></button>
@@ -173,19 +172,19 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
       </details>}
       {error && <p className="day-timeline-error" role="alert">{error}</p>}
       <div className="day-timeline-scroll" ref={scrollRef}>
-        <div ref={gridRef} className={`day-timeline-grid${dragOver ? ' is-drop-target' : ''}`} style={{ height: GRID_HEIGHT }}
+        <div ref={gridRef} className={`day-timeline-grid${dragOver ? ' is-drop-target' : ''}`} style={{ height: axis.height }}
           onDragOver={event => { if (draggingId) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
           onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragOver(false); }}
           onDrop={drop}>
-          {Array.from({ length: 25 }, (_, hour) => <div key={hour} className="day-timeline-hour" style={{ top: hour * 80 }}><span>{String(hour).padStart(2, '0')}:00</span></div>)}
-          {dayKey(now) === date && <div className="day-timeline-now" style={{ top: minuteOfDay(now, dayEnd) * GRID_HEIGHT / 1440 }} />}
+          {axis.ticks.map(tick => <div key={tick.time} className="day-timeline-hour" style={{ top: tick.top }}><span title={tick.title}>{tick.label}</span></div>)}
+          {dayKey(now) === date && <div className="day-timeline-now" style={{ top: axis.top(now) }} />}
           {laidOut.map(({ block, start, end, lane, lanes }) => {
             const task = taskMap.get(block.taskId);
             const current = draft?.id === block.id ? draft : block;
-            const visibleStart = draft?.id === block.id ? Math.max(dateBounds(date).start, current.plannedStart) : start;
-            const visibleEnd = draft?.id === block.id ? Math.min(dayEnd, current.plannedEnd) : end;
-            const top = minuteOfDay(visibleStart, dayEnd) * GRID_HEIGHT / 1440;
-            const height = Math.max(18, (minuteOfDay(visibleEnd, dayEnd) - minuteOfDay(visibleStart, dayEnd)) * GRID_HEIGHT / 1440);
+            const visibleStart = draft?.id === block.id ? Math.max(axis.start, current.plannedStart) : start;
+            const visibleEnd = draft?.id === block.id ? Math.min(axis.end, current.plannedEnd) : end;
+            const top = axis.top(visibleStart);
+            const height = Math.max(18, axis.top(visibleEnd) - top);
             return <button key={block.id} type="button" className={`day-timeline-block${conflicts.has(block.id) || block.conflictOf ? ' is-conflict' : ''}${block.status === 'finished' ? ' is-finished' : ''}${block.status === 'running' ? ' is-running' : ''}${block.status === 'pending' && now > block.plannedEnd ? ' is-overdue' : ''}`}
               style={{ top, height, left: `calc(48px + (100% - 54px) * ${lane} / ${lanes})`, width: `calc((100% - 54px) / ${lanes} - 3px)` }}
               title={`${task?.title || '尚未同步的任务'} · ${formatClock(block.plannedStart)}–${formatClock(block.plannedEnd)}`}

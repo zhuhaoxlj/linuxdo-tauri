@@ -23,9 +23,30 @@ export function addDays(key, delta) {
 }
 
 export function snapToQuarter(value) {
-  const date = new Date(value);
-  date.setMinutes(Math.round((date.getMinutes() + date.getSeconds() / 60) / 15) * 15, 0, 0);
-  return date.getTime();
+  return Math.round(value / QUARTER_MS) * QUARTER_MS;
+}
+
+export function dayTimelineAxis(key) {
+  const { start, end } = dateBounds(key);
+  const height = (end - start) / 3_600_000 * 80;
+  const ticks = [];
+  for (let time = start; time < end; time += 3_600_000) {
+    const date = new Date(time);
+    const label = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    ticks.push({ time, label, top: (time - start) / 3_600_000 * 80 });
+  }
+  const seen = new Map();
+  const counts = new Map();
+  ticks.forEach(tick => counts.set(tick.label, (counts.get(tick.label) || 0) + 1));
+  for (const tick of ticks) {
+    if (counts.get(tick.label) < 2) continue;
+    const occurrence = (seen.get(tick.label) || 0) + 1;
+    seen.set(tick.label, occurrence);
+    tick.title = `${tick.label} 第 ${occurrence} 次`;
+    tick.label += occurrence === 1 ? '¹' : '²';
+  }
+  ticks.push({ time: end, label: '24:00', top: height });
+  return { start, end, height, ticks, top: time => (time - start) / (end - start) * height };
 }
 
 export function daySegments(blocks, key) {
@@ -86,4 +107,9 @@ export function cancelFutureBlocks(blocks, taskId, now = Date.now()) {
   return blocks.map(block => block.taskId === taskId && block.status === 'pending' && block.plannedStart > now
     ? { ...block, status: 'canceled', cancelReason: 'task_completed', updatedAt: new Date(now).toISOString() }
     : block);
+}
+
+export function taskCompletionTime(task, column, now = Date.now()) {
+  if (column !== 'done') return null;
+  return task.column === 'done' ? task.completedAt ?? (Date.parse(task.updatedAt || '') || now) : now;
 }

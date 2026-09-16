@@ -228,7 +228,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             #[cfg(desktop)]
             {
@@ -237,8 +236,15 @@ pub fn run() {
                     window.set_icon(icon.clone())?;
                 }
                 let open = MenuItem::with_id(app, "open", "打开 LinuxDo", true, None::<&str>)?;
+                let status = MenuItem::with_id(
+                    app,
+                    "reminder-status",
+                    "提醒状态：正常",
+                    false,
+                    None::<&str>,
+                )?;
                 let quit = MenuItem::with_id(app, "quit", "退出 LinuxDo", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&open, &quit])?;
+                let menu = Menu::with_items(app, &[&open, &status, &quit])?;
                 match TrayIconBuilder::new()
                     .icon(icon)
                     .tooltip("LinuxDo · 后台提醒")
@@ -263,23 +269,19 @@ pub fn run() {
                     .build(app)
                 {
                     Ok(_) => {
-                        app.state::<Arc<reminders::ReminderRuntime>>()
-                            .tray_ready
-                            .store(true, Ordering::SeqCst);
+                        let runtime = app.state::<Arc<reminders::ReminderRuntime>>();
+                        *runtime.status_item.lock().unwrap() = Some(status);
+                        runtime.tray_ready.store(true, Ordering::SeqCst);
                     }
                     Err(error) => {
-                        *app.state::<Arc<reminders::ReminderRuntime>>()
-                            .last_error
-                            .lock()
-                            .unwrap() = Some(format!("系统托盘不可用：{error}"));
+                        app.state::<Arc<reminders::ReminderRuntime>>()
+                            .update_status(Some(format!("系统托盘不可用：{error}")));
                     }
                 }
                 #[cfg(target_os = "linux")]
                 if let Err(error) = notify_rust::get_server_information() {
-                    *app.state::<Arc<reminders::ReminderRuntime>>()
-                        .last_error
-                        .lock()
-                        .unwrap() = Some(format!("系统通知服务不可用：{error}"));
+                    app.state::<Arc<reminders::ReminderRuntime>>()
+                        .update_status(Some(format!("系统通知服务不可用：{error}")));
                 }
                 reminders::start(
                     app.handle().clone(),
@@ -307,7 +309,7 @@ pub fn run() {
                             if let Err(error) =
                                 reminders::announce_background(window.app_handle(), &runtime)
                             {
-                                *runtime.last_error.lock().unwrap() = Some(error);
+                                runtime.update_status(Some(error));
                                 let _ = window.emit(
                                     "tray-unavailable",
                                     "系统通知不可用，请检查通知服务后重试",

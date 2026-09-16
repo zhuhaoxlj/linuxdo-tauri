@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dayGoalToRecord, detachWorkspace, mergeWorkspace, noteToRecord, recordToDayGoal, recordToNote, recordToSchedule, recordToTask, resolveConflict, scheduleToRecord, taskToRecord } from '../src/modules/sync/workspace.js';
+import { dayGoalToRecord, detachWorkspace, mergeWorkspace, noteToRecord, reconcileRemoteSchedules, recordToDayGoal, recordToNote, recordToSchedule, recordToTask, resolveConflict, scheduleToRecord, taskToRecord } from '../src/modules/sync/workspace.js';
 import { decryptNote, generatePairingKeyPair, openPairingEnvelope, sealPairingEnvelope } from '../src/modules/sync/crypto.js';
 import { acknowledgedDirtyIds } from '../src/modules/sync/pending.js';
 
@@ -114,6 +114,79 @@ test('a protected local change is not overwritten before its outbox entry is ack
 
   assert.equal(merged.tasks[0].title, '尚未上传的本地编辑');
   assert.equal(merged.tasks[0].serverVersion, 1);
+});
+
+test('remote completion cancels future plans without erasing executed history or reviving plans on reopen', () => {
+  const now = Date.parse('2026-09-16T09:00:00Z');
+  const task = { id: '42', title: '工作', column: 'doing', createdAt: new Date(now - 1000).toISOString() };
+  const future = { id: 'future', taskId: 'linuxdo-board:42', plannedStart: now + 3_600_000,
+    plannedEnd: now + 7_200_000, status: 'pending', createdAt: task.createdAt };
+  const past = { ...future, id: 'past', plannedStart: now - 7_200_000, plannedEnd: now - 3_600_000,
+    status: 'finished', actualStart: now - 7_200_000, actualEnd: now - 3_600_000 };
+  const current = { tasks: [task], notes: [], schedules: [future, past], dayGoals: [], tombstones: [] };
+  const done = taskToRecord(task, { boardColumn: 'done', updatedAt: now, serverVersion: 2 });
+  const result = reconcileRemoteSchedules(mergeWorkspace(current, [done]), now);
+  assert.equal(result.workspace.schedules[0].status, 'canceled');
+  assert.equal(result.workspace.schedules[0].cancelReason, 'task_completed');
+  assert.equal(result.workspace.schedules[1].status, 'finished');
+  assert.deepEqual(result.changedRecords.map(record => record.id), ['linuxdo-schedule:future']);
+
+  const reopened = taskToRecord(task, { boardColumn: 'doing', updatedAt: now + 1000, serverVersion: 3 });
+  const next = reconcileRemoteSchedules(mergeWorkspace(result.workspace, [reopened]), now + 1000);
+  assert.equal(next.workspace.schedules[0].status, 'canceled');
+  assert.deepEqual(next.changedRecords, []);
+});
+
+test('a late offline completion still cancels blocks that were future when the task finished', () => {
+  const completedAt = Date.parse('2026-09-16T09:00:00Z');
+  const task = { id: '42', title: '工作', column: 'doing', createdAt: new Date(completedAt - 1000).toISOString() };
+  const block = { id: 'ten', taskId: 'linuxdo-board:42', plannedStart: completedAt + 3_600_000,
+    plannedEnd: completedAt + 7_200_000, status: 'pending', createdAt: task.createdAt };
+  const current = { tasks: [task], notes: [], schedules: [block], dayGoals: [], tombstones: [] };
+  const done = taskToRecord(task, { boardColumn: 'done', updatedAt: completedAt, serverVersion: 2 });
+  const result = reconcileRemoteSchedules(mergeWorkspace(current, [done]), completedAt + 2 * 3_600_000);
+  assert.equal(result.workspace.schedules[0].status, 'canceled');
+  assert.deepEqual(result.changedRecords.map(record => record.id), ['linuxdo-schedule:ten']);
+});
+
+test('editing a completed task later does not move the completion boundary', () => {
+  const completedAt = Date.parse('2026-09-16T09:00:00Z');
+  const task = { id: '42', title: '工作', column: 'doing', createdAt: new Date(completedAt - 1000).toISOString() };
+  const block = { id: 'ten', taskId: 'linuxdo-board:42', plannedStart: completedAt + 3_600_000,
+    plannedEnd: completedAt + 7_200_000, status: 'pending', createdAt: task.createdAt };
+  const current = { tasks: [task], notes: [], schedules: [block], dayGoals: [], tombstones: [] };
+  const edited = taskToRecord(task, { boardColumn: 'done', completedAt, updatedAt: completedAt + 2 * 3_600_000, serverVersion: 3 });
+  assert.equal(recordToTask(edited).completedAt, completedAt);
+  const result = reconcileRemoteSchedules(mergeWorkspace(current, [edited]), completedAt + 3 * 3_600_000);
+  assert.equal(result.workspace.schedules[0].status, 'canceled');
+});
+
+test('remote task deletion removes schedules even when the tombstone arrived before the block', () => {
+  const now = Date.parse('2026-09-16T09:00:00Z');
+  const task = { id: '42', title: '已删除', column: 'todo', createdAt: new Date(now - 1000).toISOString() };
+  const block = { id: 'future', taskId: 'linuxdo-board:42', plannedStart: now + 3_600_000,
+    plannedEnd: now + 7_200_000, status: 'pending', createdAt: task.createdAt };
+  const tombstone = taskToRecord(task, { trashedAt: now, updatedAt: now, serverVersion: 2 });
+  const current = { tasks: [task], notes: [], schedules: [block], dayGoals: [], tombstones: [] };
+  const removed = reconcileRemoteSchedules(mergeWorkspace(current, [tombstone]), now);
+  assert.deepEqual(removed.workspace.tasks, []);
+  assert.deepEqual(removed.workspace.schedules, []);
+  assert.equal(removed.changedRecords[0].trashedAt, now);
+
+  const orphan = { tasks: [], notes: [], schedules: [], dayGoals: [], tombstones: [tombstone] };
+  const late = reconcileRemoteSchedules(mergeWorkspace(orphan, [scheduleToRecord(block)]), now + 1000);
+  assert.deepEqual(late.workspace.schedules, []);
+  assert.equal(late.changedRecords[0].id, 'linuxdo-schedule:future');
+  assert.equal(late.changedRecords[0].trashedAt, now + 1000);
+});
+
+test('unresolved schedule without a task or deletion tombstone remains available for later sync', () => {
+  const current = { tasks: [], notes: [], schedules: [], dayGoals: [], tombstones: [] };
+  const block = { id: 'waiting', taskId: 'linuxdo-board:42', plannedStart: 1000,
+    plannedEnd: 2000, status: 'pending', createdAt: '2026-09-16T00:00:00Z' };
+  const result = reconcileRemoteSchedules(mergeWorkspace(current, [scheduleToRecord(block)]), 500);
+  assert.equal(result.workspace.schedules.length, 1);
+  assert.deepEqual(result.changedRecords, []);
 });
 
 test('a revision created during sync is not cleared by the older pending snapshot', () => {
