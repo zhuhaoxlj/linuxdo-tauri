@@ -24,12 +24,19 @@ class ErrorBoundary extends React.Component {
   static getDerivedStateFromError(error) { 
     return { error }; 
   }
+  componentDidCatch(error, info) {
+    // 之前这里把异常完全吞掉，出问题时只看到"页面遇到了一点问题"，无法定位
+    console.error('render error:', error, info);
+  }
   render() {
     return this.state.error ? (
       <div className="flex items-center justify-center h-screen" role="alert">
         <div className="text-center">
           <h1 className="text-2xl font-bold text-gray-900 mb-4">页面遇到了一点问题</h1>
           <p className="text-gray-600 mb-6">重新打开页面后，你的本机数据仍会保留。</p>
+          <pre className="mb-6 max-w-2xl overflow-auto rounded bg-gray-100 p-3 text-left text-xs text-gray-700">
+            {String(this.state.error?.stack || this.state.error?.message || this.state.error)}
+          </pre>
           <button 
             className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700" 
             onClick={() => location.reload()}

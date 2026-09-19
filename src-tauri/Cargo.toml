@@ -23,8 +23,15 @@ base64 = "0.22"
 rsa = "0.9"
 rand = "0.8"
 uuid = { version = "1.0", features = ["v4"] }
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt", "net", "io-util"] }
 url = "2.5"
+# 局域网信令（P1）：中继订阅 + 握手探测。依赖版本与 Alive 的 relay 保持一致，避免解析出不同实现。
+tokio-tungstenite = { version = "0.26", default-features = false, features = ["handshake", "connect", "rustls-tls-native-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }

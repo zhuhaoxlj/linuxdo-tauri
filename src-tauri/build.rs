@@ -17,6 +17,13 @@ fn main() {
             "shared_storage_backup",
             "reminder_status",
             "take_reminder_open",
+            // 局域网发现 + 音频推流（P1/P3）。必须登记在这里：
+            // 否则不会生成 allow-* 权限，前端 invoke 会被 capability 直接拒绝
+            // （事件推送不受此限制，所以光看界面会以为没问题）。
+            "lan_status",
+            "audio_status",
+            "audio_start",
+            "audio_stop",
         ]),
     ))
     .expect("failed to build Tauri application");

@@ -194,6 +194,47 @@
   font-size: 12px;
 }
 .app-shell .app-sidebar-footer p { margin: 0; }
+
+/* 局域网直连状态（P1：发现 + 握手验证） */
+.app-shell .lan-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.lan-status-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9aa8bb;
+}
+.lan-status-ok { color: #2f7d4f; }
+.lan-status-ok .lan-status-dot { background: #35a866; }
+.lan-status-warn { color: #a4601d; }
+.lan-status-warn .lan-status-dot { background: #d98a2b; }
+.lan-status-idle { color: #718097; }
+
+/* P3：音频推流控制 */
+.app-shell .lan-audio { margin: 0 0 8px; }
+.app-shell .lan-audio-button {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid #cad7e9;
+  border-radius: 8px;
+  background: #f7fafe;
+  color: #345e9f;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.app-shell .lan-audio-button:hover:not(:disabled) { background: #eaf1fd; }
+.app-shell .lan-audio-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.app-shell .lan-audio-button.is-on { background: #eaf7ee; border-color: #a8d5b8; color: #2f7d4f; }
+.app-shell .lan-audio-meta { margin: 4px 0 0; color: #718097; font-size: 11px; }
+.app-shell .lan-audio-error { margin: 4px 0 0; color: #a4601d; font-size: 11px; }
 .app-shell :focus-visible { outline: 2px solid #4974bb; outline-offset: 3px; }
 
 @media (max-width: 900px) {

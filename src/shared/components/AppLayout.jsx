@@ -4,6 +4,8 @@ import '../app-shell.css';
 import { useBoard } from '../../modules/board/context/BoardContext';
 import { useLocation, useNavigate } from 'react-router-dom';
 import AppNavItem from './AppNavItem';
+import LanStatusBadge from './LanStatusBadge';
+import AudioControl from './AudioControl';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -13,6 +15,8 @@ export default function AppLayout({ children }) {
   const navigate = useNavigate();
   const [dragId, setDragId] = useState(null);
   const [dropHint, setDropHint] = useState(null);
+  const [lanStatus, setLanStatus] = useState(null);
+  const [audioStatus, setAudioStatus] = useState(null);
   const dragIdRef = useRef(null);
   const dropHintRef = useRef(null);
 
@@ -31,6 +35,39 @@ export default function AppLayout({ children }) {
     invoke('take_reminder_open').then(open);
     return () => { active = false; unlisten?.(); };
   }, [navigate, setReminderOpen]);
+
+  // 局域网直连状态：Rust 侧订阅中继 + 完成握手验证后会推送事件
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return undefined;
+    let active = true;
+    let unlisten;
+    listen('lan-status', event => { if (active) setLanStatus(event.payload); })
+      .then(dispose => { if (active) unlisten = dispose; else dispose(); });
+    invoke('lan_status')
+      .then(status => { if (active) setLanStatus(status); })
+      .catch(error => console.warn('lan_status failed:', error));
+    return () => { active = false; unlisten?.(); };
+  }, []);
+
+  // P3：音频推流状态
+  useEffect(() => {
+    if (!window.__TAURI_INTERNALS__) return undefined;
+    let active = true;
+    let unlisten;
+    listen('audio-status', event => { if (active) setAudioStatus(event.payload); })
+      .then(dispose => { if (active) unlisten = dispose; else dispose(); });
+    invoke('audio_status')
+      .then(status => { if (active) setAudioStatus(status); })
+      .catch(error => console.warn('audio_status failed:', error));
+    return () => { active = false; unlisten?.(); };
+  }, []);
+
+  const toggleAudio = () => {
+    const command = audioStatus?.streaming ? 'audio_stop' : 'audio_start';
+    invoke(command)
+      .then(status => setAudioStatus(status))
+      .catch(error => setAudioStatus(prev => ({ ...(prev || {}), lastError: String(error) })));
+  };
 
   const startDrag = id => {
     dragIdRef.current = id;
@@ -125,6 +162,8 @@ export default function AppLayout({ children }) {
 
         {/* 底部信息 */}
         <div className="app-sidebar-footer">
+          <LanStatusBadge status={lanStatus} />
+          <AudioControl lan={lanStatus} audio={audioStatus} onToggle={toggleAudio} />
           <p>快速启动 · 高效管理</p>
         </div>
       </aside>

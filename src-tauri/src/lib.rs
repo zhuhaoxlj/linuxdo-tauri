@@ -1,5 +1,7 @@
 mod api;
+mod audio;
 mod auth;
+mod lan;
 mod reminders;
 mod shared_storage;
 mod site_session;
@@ -290,12 +292,19 @@ pub fn run() {
                         .clone(),
                 );
             }
+            // 局域网发现 + 握手验证：全平台启动，不依赖托盘
+            lan::start(
+                app.handle().clone(),
+                app.state::<Arc<lan::LanRuntime>>().inner().clone(),
+            );
             Ok(())
         })
         .manage(AppState::default())
         .manage(SiteSession::default())
         .manage(SharedStorageLock::default())
         .manage(Arc::new(reminders::ReminderRuntime::default()))
+        .manage(Arc::new(lan::LanRuntime::default()))
+        .manage(Arc::new(audio::AudioRuntime::default()))
         .on_window_event(|window, event| {
             #[cfg(desktop)]
             if window.label() == "main" {
@@ -345,6 +354,10 @@ pub fn run() {
             shared_storage::shared_storage_backup,
             reminders::reminder_status,
             reminders::take_reminder_open,
+            lan::lan_status,
+            audio::audio_status,
+            audio::audio_start,
+            audio::audio_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

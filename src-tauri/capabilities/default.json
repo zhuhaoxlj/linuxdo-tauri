@@ -24,6 +24,10 @@
     "allow-shared-storage-put",
     "allow-shared-storage-backup",
     "allow-reminder-status",
-    "allow-take-reminder-open"
+    "allow-take-reminder-open",
+    "allow-lan-status",
+    "allow-audio-status",
+    "allow-audio-start",
+    "allow-audio-stop"
   ]
 }
