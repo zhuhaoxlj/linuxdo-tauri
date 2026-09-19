@@ -22,6 +22,8 @@
     "allow-shared-storage-load",
     "allow-shared-storage-save",
     "allow-shared-storage-put",
-    "allow-shared-storage-backup"
+    "allow-shared-storage-backup",
+    "allow-reminder-status",
+    "allow-take-reminder-open"
   ]
 }

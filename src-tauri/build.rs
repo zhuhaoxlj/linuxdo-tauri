@@ -15,6 +15,8 @@ fn main() {
             "shared_storage_save",
             "shared_storage_put",
             "shared_storage_backup",
+            "reminder_status",
+            "take_reminder_open",
         ]),
     ))
     .expect("failed to build Tauri application");
