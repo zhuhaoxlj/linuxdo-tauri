@@ -54,6 +54,9 @@ pub struct AudioStatus {
     pub streaming: bool,
     pub target: Option<String>,
     pub packets: u64,
+    /// 最近约 2 秒实际发出去的音频电平（RMS）。为 0 说明**采集到的是静音**——
+    /// 也就是电脑当前没有音频输出到默认设备（常见于播放器把流挂起了）。
+    pub level: u32,
     /// 是否由我们静音了电脑本地输出（"手机当扬声器"的关键，见 [mute_local_output]）
     pub local_muted: bool,
     pub last_error: Option<String>,
@@ -345,12 +348,21 @@ fn stream_loop<F: Fn(AudioStatus)>(
 
     let mut seq: u32 = 0;
     let mut packets: u64 = 0;
+    let mut level_sum_sq: f64 = 0.0;
+    let mut level_samples: u64 = 0;
+    let mut level: u32 = 0;
     let mut frame = vec![0u8; PAYLOAD_BYTES];
     let mut packet = Vec::with_capacity(HEADER_BYTES + PAYLOAD_BYTES);
 
     while !stop.load(Ordering::SeqCst) {
         if stdout.read_exact(&mut frame).is_err() {
             break; // parec 退出或管道关闭
+        }
+        // 统计实际发出去的电平，供 UI 判断"采到的是不是静音"
+        for chunk in frame.chunks_exact(2) {
+            let sample = i16::from_le_bytes([chunk[0], chunk[1]]) as f64;
+            level_sum_sq += sample * sample;
+            level_samples += 1;
         }
         build_packet(&mut packet, seq, &frame, key);
         // 单包失败无所谓：UDP 无重传，下一个 5ms 就有新包顶上
@@ -387,8 +399,14 @@ fn stream_loop<F: Fn(AudioStatus)>(
                     }
                 }
             }
+            if level_samples > 0 {
+                level = (level_sum_sq / level_samples as f64).sqrt() as u32;
+                level_sum_sq = 0.0;
+                level_samples = 0;
+            }
             on_progress(runtime.update(|s| {
                 s.packets = packets;
+                s.level = level;
                 s.target = Some(format!("{target_addr}:{target_port}"));
             }));
         }

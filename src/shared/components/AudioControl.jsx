@@ -35,6 +35,12 @@ export default function AudioControl({ lan, audio, onToggle }) {
       {streaming && !audio?.localMuted && audio?.packets > 0 ? (
         <p className="lan-audio-meta">已发送 {audio.packets} 包</p>
       ) : null}
+      {streaming && audio?.packets > 400 && audio?.level === 0 ? (
+        <p className="lan-audio-warn">
+          ⚠ 采到的是静音 —— 电脑当前没有音频输出到默认设备
+          （播放器把音频流挂起时就是这样，重新播放一次即可）
+        </p>
+      ) : null}
       {audio?.lastError ? <p className="lan-audio-error">{audio.lastError}</p> : null}
     </div>
   );

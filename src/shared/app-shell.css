@@ -235,6 +235,12 @@
 .app-shell .lan-audio-button.is-on { background: #eaf7ee; border-color: #a8d5b8; color: #2f7d4f; }
 .app-shell .lan-audio-meta { margin: 4px 0 0; color: #718097; font-size: 11px; }
 .app-shell .lan-audio-error { margin: 4px 0 0; color: #a4601d; font-size: 11px; }
+.app-shell .lan-audio-warn {
+  margin: 4px 0 0;
+  color: #a4601d;
+  font-size: 11px;
+  line-height: 1.45;
+}
 .app-shell :focus-visible { outline: 2px solid #4974bb; outline-offset: 3px; }
 
 @media (max-width: 900px) {
