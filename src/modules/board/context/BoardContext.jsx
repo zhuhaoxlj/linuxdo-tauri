@@ -8,18 +8,9 @@ import { acknowledgedDirtyIds } from '../../sync/pending';
 import { writeSharedValue, writeSharedValueConfirmed } from '../../../shared/sharedStorage';
 import { cancelFutureBlocks, dateBounds, DEFAULT_BLOCK_MS, taskCompletionTime } from '../lib/schedule';
 import { createWorkspaceQueue, retainConcurrentNoteEdits } from '../lib/workspaceQueue';
+import { DEFAULT_CATEGORIES, mergeCategories, updateCategoryList } from '../lib/categories';
 
 const BoardContext = createContext();
-
-const DEFAULT_CATEGORIES = [
-  { id: 'home', name: '首页', icon: '🏠', color: '#6366f1' },
-  { id: 'life', name: '生活', icon: '🌟', color: '#10b981' },
-  { id: 'work', name: '工作', icon: '💼', color: '#f59e0b' },
-  { id: 'knowledge', name: '知识库', icon: '📚', color: '#8b5cf6' },
-  { id: 'sync', name: '同步配对', icon: '☁️', color: '#4974bb' },
-  { id: 'entertainment', name: '娱乐', icon: '🎮', color: '#ec4899' },
-  { id: 'linuxdo', name: 'LinuxDo', icon: '🐧', color: '#06b6d4' }
-];
 
 export const KANBAN_COLUMNS = [
   { id: 'inbox', name: 'inbox' },
@@ -43,7 +34,7 @@ function insertTask(list, task, beforeId) {
 }
 
 export function BoardProvider({ children }) {
-  const [categories] = useState(DEFAULT_CATEGORIES);
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [activeCategory, setActiveCategory] = useState('home');
   const [tasks, setTasks] = useState([]);
   const [notes, setNotes] = useState([]);
@@ -96,6 +87,7 @@ export function BoardProvider({ children }) {
         setDayGoals(restored.dayGoals);
         setTombstones(restored.tombstones);
         setActiveCategory(data.activeCategory || 'home');
+        setCategories(mergeCategories(data.categories));
       }
       setStorageReady(true);
     } catch (error) {
@@ -112,7 +104,8 @@ export function BoardProvider({ children }) {
         // 看板与知识库笔记同时写入本机与开发版/正式版共享文件
         writeSharedValue(STORAGE_KEY, JSON.stringify({
           ...workspaceRef.current,
-          activeCategory
+          activeCategory,
+          categories,
         }));
         setStorageError('');
       } catch (error) {
@@ -120,7 +113,7 @@ export function BoardProvider({ children }) {
         setStorageError('未能保存到本地，可能是存储空间不足。请先复制正在编辑的 Markdown，避免内容丢失。');
       }
     }
-  }, [tasks, notes, schedules, dayGoals, tombstones, activeCategory, loading, storageReady]);
+  }, [tasks, notes, schedules, dayGoals, tombstones, activeCategory, categories, loading, storageReady]);
 
   useEffect(() => {
     loadVault()
@@ -548,10 +541,16 @@ export function BoardProvider({ children }) {
     }
   };
 
+
+  const updateCategory = (id, updates) => {
+    setCategories(current => updateCategoryList(current, id, updates));
+  };
+
   const value = {
     categories,
     activeCategory,
     setActiveCategory,
+    updateCategory,
     tasks,
     notes,
     schedules,

@@ -3,11 +3,12 @@ import '../../modules/board/board.css';
 import '../app-shell.css';
 import { useBoard } from '../../modules/board/context/BoardContext';
 import { useLocation, useNavigate } from 'react-router-dom';
+import AppNavItem from './AppNavItem';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
 export default function AppLayout({ children }) {
-  const { categories, activeCategory, setActiveCategory, setReminderOpen } = useBoard();
+  const { categories, activeCategory, setActiveCategory, setReminderOpen, updateCategory } = useBoard();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -65,23 +66,14 @@ export default function AppLayout({ children }) {
         <nav className="app-navigation" aria-label="应用导航">
           <div className="app-nav-list">
             {categories.map(category => (
-              <button
+              <AppNavItem
                 key={category.id}
-                type="button"
-                title={category.name}
-                aria-current={currentActive === category.id ? 'page' : undefined}
-                onClick={() => handleCategoryClick(category.id)}
-                className="app-nav-item"
-              >
-                <span className="app-nav-icon">{category.icon}</span>
-                <span className="app-nav-label">{category.name}</span>
-                {currentActive === category.id && (
-                  <div
-                    className="app-nav-marker"
-                    style={{ backgroundColor: category.color }}
-                  />
-                )}
-              </button>
+                category={category}
+                current={currentActive === category.id}
+                onSelect={() => handleCategoryClick(category.id)}
+                onRename={name => updateCategory(category.id, { name })}
+                onChangeIcon={icon => updateCategory(category.id, { icon })}
+              />
             ))}
           </div>
         </nav>

@@ -50,6 +50,7 @@
 }
 .app-nav-list { display: flex; flex-direction: column; gap: 2px; }
 .app-nav-item {
+  position: relative;
   width: 100%;
   display: flex;
   align-items: center;
@@ -59,13 +60,104 @@
   color: #3c4a5e;
   font-size: 14px;
   text-align: left;
+  cursor: pointer;
   transition: background-color .15s, color .15s;
 }
-.app-nav-icon { font-size: 19px; line-height: 1; filter: saturate(.8); }
-.app-nav-label { flex: 1; }
-.app-nav-marker { width: 3px; height: 22px; border-radius: 999px; }
+.app-nav-icon,
+.app-nav-label {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  padding: 0;
+}
+.app-nav-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 19px;
+  line-height: 1;
+  filter: saturate(.8);
+}
+.app-nav-icon:hover { background: #e2ebf8; }
+.app-nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.app-nav-label-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  margin: 0;
+  padding: 0 7px;
+  border: 1px solid #c5d4ea;
+  border-radius: 6px;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+}
+.app-nav-marker { width: 3px; height: 22px; border-radius: 999px; flex: 0 0 auto; }
 .app-nav-item:hover { background: #eef3fb; }
 .app-nav-item[aria-current="page"] { color: #345e9f; background: #eaf1fd; font-weight: 600; }
+.app-emoji-picker {
+  position: fixed;
+  z-index: 80;
+  width: 276px;
+  max-height: min(340px, calc(100dvh - 16px));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #dae3ef;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 16px 48px #1e2b4130;
+  color: #3c4a5e;
+}
+.app-emoji-custom { display: flex; gap: 6px; }
+.app-emoji-custom input {
+  flex: 1;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid #d9e2ee;
+  border-radius: 7px;
+  font-size: 13px;
+}
+.app-emoji-custom button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: #4974bb;
+  color: #fff;
+  font-size: 12px;
+}
+.app-emoji-groups { overflow-y: auto; display: grid; gap: 10px; min-height: 0; }
+.app-emoji-groups h3 { margin: 0 0 6px; color: #718097; font-size: 11px; font-weight: 650; }
+.app-emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.app-emoji-grid button {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+}
+.app-emoji-grid button:hover,
+.app-emoji-grid button.is-selected { background: #eaf1fd; }
 .app-shell .app-sidebar-footer {
   padding: 16px 24px;
   border-top: 1px solid #e6ebf3;
@@ -83,7 +175,7 @@
   .app-shell .app-navigation { padding: 12px 8px; }
   .app-nav-item { position: relative; min-height: 48px; justify-content: center; gap: 0; padding: 8px; }
   .app-nav-icon { font-size: 20px; }
-  .app-nav-label { display: none; }
+  .app-nav-label, .app-nav-label-input { display: none; }
   .app-nav-marker { position: absolute; right: 4px; }
   .app-shell .app-sidebar-footer { display: none; }
 }
