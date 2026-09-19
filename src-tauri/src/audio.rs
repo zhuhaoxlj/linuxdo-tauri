@@ -16,8 +16,7 @@ use std::io::Read;
 use std::net::UdpSocket;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};use std::time::{SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, Mac};
 use serde::Serialize;
@@ -50,6 +49,8 @@ pub struct AudioStatus {
     pub streaming: bool,
     pub target: Option<String>,
     pub packets: u64,
+    /// 是否由我们静音了电脑本地输出（"手机当扬声器"的关键，见 [mute_local_output]）
+    pub local_muted: bool,
     pub last_error: Option<String>,
 }
 
@@ -113,6 +114,11 @@ pub fn audio_start(
         .lock()
         .map_err(|_| "状态锁异常".to_string())? = Some(flag.clone());
 
+    // "手机当扬声器"的关键：电脑本地输出也静音，否则用户会同时听到电脑音箱和
+    // 手机（延迟几百毫秒），叠在一起像回声/环境音。
+    // 实测 monitor 是**静音前**取点，所以静音不影响采集。
+    let muted = mute_local_output();
+
     let rt = runtime.inner().clone();
     let app_for_thread = app.clone();
     let flag_for_thread = flag.clone();
@@ -127,10 +133,13 @@ pub fn audio_start(
                 let _ = app_for_thread.emit("audio-status", status);
             },
         );
+        // 无论正常结束还是出错，都要把本地输出恢复回去
+        restore_local_output();
         // 只有仍是当前会话才回收状态，否则会把新会话的 streaming 误置为 false
         if rt.is_current(&flag_for_thread) {
             let status = rt.update(|s| {
                 s.streaming = false;
+                s.local_muted = false;
                 s.last_error = result.err();
             });
             let _ = app_for_thread.emit("audio-status", status);
@@ -141,6 +150,7 @@ pub fn audio_start(
         s.streaming = true;
         s.target = Some(target);
         s.packets = 0;
+        s.local_muted = muted;
         s.last_error = None;
     });
     let _ = app.emit("audio-status", status.clone());
@@ -153,9 +163,11 @@ pub fn audio_stop(
     runtime: State<'_, Arc<AudioRuntime>>,
 ) -> AudioStatus {
     stop_current(&runtime);
+    restore_local_output();
     let status = runtime.update(|s| {
         s.streaming = false;
         s.target = None;
+        s.local_muted = false;
     });
     let _ = app.emit("audio-status", status.clone());
     status
@@ -168,6 +180,62 @@ fn stop_current(runtime: &AudioRuntime) {
         }
     }
 }
+
+/// 当前默认输出的静音状态；查不到（比如没有 pactl）返回 None。
+///
+/// **必须 `LC_ALL=C`**：pactl 的输出会跟随区域设置，中文环境下是 `Mute: 是`，
+/// 按英文 `yes` 判断会永远读成"未静音"——那会导致恢复时把用户自己设的静音也取消掉。
+/// （这个 bug 是被 `live_mute_roundtrip` 测试抓出来的。）
+fn sink_muted() -> Option<bool> {
+    let out = Command::new("pactl")
+        .env("LC_ALL", "C")
+        .args(["get-sink-mute", "@DEFAULT_SINK@"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&out.stdout).trim().ends_with("yes"))
+}
+
+fn set_sink_mute(mute: bool) {
+    let _ = Command::new("pactl")
+        .env("LC_ALL", "C")
+        .args([
+            "set-sink-mute",
+            "@DEFAULT_SINK@",
+            if mute { "1" } else { "0" },
+        ])
+        .output();
+}
+
+/// 静音本地输出，返回是否由我们做了这次静音。
+///
+/// 只记录"我们主动改的"状态：如果用户自己本来就静音了，退出时不替他取消静音。
+fn mute_local_output() -> bool {
+    match sink_muted() {
+        Some(false) => {
+            set_sink_mute(true);
+            MUTED_BY_US.store(true, Ordering::SeqCst);
+            true
+        }
+        _ => {
+            MUTED_BY_US.store(false, Ordering::SeqCst);
+            false
+        }
+    }
+}
+
+fn restore_local_output() {
+    if MUTED_BY_US.swap(false, Ordering::SeqCst) {
+        set_sink_mute(false);
+    }
+}
+
+/// 进程级的"这次静音是不是我们做的"。
+/// 放在静态变量里是因为恢复动作可能发生在命令线程或推流线程，
+/// 两条路径都要能看到同一个标志（用 swap 保证只恢复一次）。
+static MUTED_BY_US: AtomicBool = AtomicBool::new(false);
 
 /// 进度通过回调上报，而不是直接依赖 `AppHandle`——这样联调测试也能跑真实代码路径。
 fn stream_loop<F: Fn(AudioStatus)>(
@@ -279,6 +347,26 @@ mod tests {
         assert_eq!(&out[0..2], &[0x41, 0x4C]); // magic 大端
         assert_eq!(out[2], VERSION);
         assert_eq!(&out[4..8], &[0, 0, 0, 1]); // seq 大端
+    }
+
+    /// 静音往返联调：最危险的是"推流结束后没恢复，电脑一直哑着"。
+    /// 需要 PipeWire/PulseAudio 与 pactl：
+    ///     cargo test --lib audio::tests::live_mute -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn live_mute_roundtrip_restores_original_state() {
+        let before = sink_muted().expect("需要 pactl 与 PulseAudio/PipeWire");
+
+        let muted = mute_local_output();
+        println!("静音前={before} 本次由我们静音={muted}");
+        assert_eq!(muted, !before, "只有原本未静音时我们才该动手");
+        assert_eq!(sink_muted(), Some(true), "静音后应为 yes");
+
+        // 恢复必须幂等：命令线程和推流线程都可能调用
+        restore_local_output();
+        restore_local_output();
+        assert_eq!(sink_muted(), Some(before), "必须恢复到原始状态");
+        println!("已恢复到 before={before}");
     }
 
     /// 真实链路联调：等手机广播 → 采集真实系统音频 → 推 4 秒 → 断言包数。

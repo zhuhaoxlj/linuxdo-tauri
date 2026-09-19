@@ -5,6 +5,9 @@ import React from 'react';
  *
  * 只在局域网通道已验证、且手机上报了音频端口时才允许开启——没有直连就推流
  * 只会把 1.5 Mbps 的裸 PCM 灌进公网中继（而且中继单条上限 8 KB，根本传不了）。
+ *
+ * 开启时会顺带静音电脑本地输出：否则电脑音箱和手机会同时出声（差几百毫秒），
+ * 叠在一起听起来像回声。停止时自动恢复。
  */
 export default function AudioControl({ lan, audio, onToggle }) {
   const audioPort = lan?.peer?.audioPort;
@@ -18,11 +21,18 @@ export default function AudioControl({ lan, audio, onToggle }) {
         className={`lan-audio-button${streaming ? ' is-on' : ''}`}
         onClick={onToggle}
         disabled={!ready && !streaming}
-        title={ready ? `手机音频端口 ${audioPort}` : '需要先建立局域网直连'}
+        title={
+          ready
+            ? `手机音频端口 ${audioPort}；开始时会静音电脑本地输出，停止时恢复`
+            : '需要先建立局域网直连'
+        }
       >
-        {streaming ? '⏹ 停止推送音频' : '🎧 推送电脑音频到手机'}
+        {streaming ? '⏹ 停止推送音频' : '🎧 推到手机当扬声器'}
       </button>
-      {streaming && audio?.packets > 0 ? (
+      {streaming && audio?.localMuted ? (
+        <p className="lan-audio-meta">电脑已静音 · 已发送 {audio.packets} 包</p>
+      ) : null}
+      {streaming && !audio?.localMuted && audio?.packets > 0 ? (
         <p className="lan-audio-meta">已发送 {audio.packets} 包</p>
       ) : null}
       {audio?.lastError ? <p className="lan-audio-error">{audio.lastError}</p> : null}
