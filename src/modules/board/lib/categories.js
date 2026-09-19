@@ -32,20 +32,41 @@ export function normalizeCategoryIcon(value, fallback) {
 }
 
 export function mergeCategories(stored, defaults = DEFAULT_CATEGORIES) {
-  const byId = new Map(
-    (Array.isArray(stored) ? stored : [])
-      .filter(item => item && typeof item.id === 'string')
-      .map(item => [item.id, item]),
-  );
-  return defaults.map(item => {
+  const storedList = (Array.isArray(stored) ? stored : []).filter(item => item && typeof item.id === 'string');
+  const byId = new Map(storedList.map(item => [item.id, item]));
+  const mergedById = new Map(defaults.map(item => {
     const custom = byId.get(item.id);
-    if (!custom) return { ...item };
-    return {
+    return [item.id, custom ? {
       ...item,
       name: normalizeCategoryName(custom.name, item.name),
       icon: normalizeCategoryIcon(custom.icon, item.icon),
-    };
-  });
+    } : { ...item }];
+  }));
+  const seen = new Set();
+  const ordered = [];
+  for (const item of storedList) {
+    const merged = mergedById.get(item.id);
+    if (!merged || seen.has(item.id)) continue;
+    ordered.push(merged);
+    seen.add(item.id);
+  }
+  for (const item of defaults) {
+    if (seen.has(item.id)) continue;
+    ordered.push(mergedById.get(item.id));
+  }
+  return ordered;
+}
+
+export function reorderCategoryList(categories, fromId, targetId, position = 'before') {
+  if (!fromId || fromId === targetId) return categories;
+  const from = categories.findIndex(item => item.id === fromId);
+  if (from < 0) return categories;
+  const next = categories.slice();
+  const [item] = next.splice(from, 1);
+  const target = next.findIndex(entry => entry.id === targetId);
+  if (target < 0) return categories;
+  next.splice(position === 'after' ? target + 1 : target, 0, item);
+  return next;
 }
 
 export function updateCategoryList(categories, id, updates) {

@@ -54,8 +54,8 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 11px 12px;
+  gap: 8px;
+  padding: 11px 8px 11px 6px;
   border-radius: 8px;
   color: #3c4a5e;
   font-size: 14px;
@@ -64,7 +64,8 @@
   transition: background-color .15s, color .15s;
 }
 .app-nav-icon,
-.app-nav-label {
+.app-nav-label,
+.app-nav-handle {
   border: 0;
   background: transparent;
   color: inherit;
@@ -72,6 +73,34 @@
   font-weight: inherit;
   padding: 0;
 }
+.app-nav-handle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 28px;
+  color: #9aa8bb;
+  opacity: 0;
+  cursor: grab;
+}
+.app-nav-handle:active { cursor: grabbing; }
+
+.app-nav-item:hover .app-nav-handle,
+.app-nav-item.is-dragging .app-nav-handle,
+.app-nav-handle:focus-visible { opacity: 1; }
+.app-nav-item.is-dragging { opacity: .55; }
+.app-nav-item.drop-before::before,
+.app-nav-item.drop-after::after {
+  content: "";
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: #4974bb;
+}
+.app-nav-item.drop-before::before { top: -1px; }
+.app-nav-item.drop-after::after { bottom: -1px; }
 .app-nav-icon {
   display: grid;
   place-items: center;
@@ -175,7 +204,7 @@
   .app-shell .app-navigation { padding: 12px 8px; }
   .app-nav-item { position: relative; min-height: 48px; justify-content: center; gap: 0; padding: 8px; }
   .app-nav-icon { font-size: 20px; }
-  .app-nav-label, .app-nav-label-input { display: none; }
+  .app-nav-label, .app-nav-label-input, .app-nav-handle { display: none; }
   .app-nav-marker { position: absolute; right: 4px; }
   .app-shell .app-sidebar-footer { display: none; }
 }

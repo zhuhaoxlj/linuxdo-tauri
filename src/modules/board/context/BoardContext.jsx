@@ -8,7 +8,7 @@ import { acknowledgedDirtyIds } from '../../sync/pending';
 import { writeSharedValue, writeSharedValueConfirmed } from '../../../shared/sharedStorage';
 import { cancelFutureBlocks, dateBounds, DEFAULT_BLOCK_MS, taskCompletionTime } from '../lib/schedule';
 import { createWorkspaceQueue, retainConcurrentNoteEdits } from '../lib/workspaceQueue';
-import { DEFAULT_CATEGORIES, mergeCategories, updateCategoryList } from '../lib/categories';
+import { DEFAULT_CATEGORIES, mergeCategories, reorderCategoryList, updateCategoryList } from '../lib/categories';
 
 const BoardContext = createContext();
 
@@ -546,11 +546,16 @@ export function BoardProvider({ children }) {
     setCategories(current => updateCategoryList(current, id, updates));
   };
 
+  const reorderCategories = (fromId, targetId, position) => {
+    setCategories(current => reorderCategoryList(current, fromId, targetId, position));
+  };
+
   const value = {
     categories,
     activeCategory,
     setActiveCategory,
     updateCategory,
+    reorderCategories,
     tasks,
     notes,
     schedules,

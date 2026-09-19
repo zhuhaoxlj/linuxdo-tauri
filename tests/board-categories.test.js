@@ -8,6 +8,7 @@ import {
   normalizeCategoryName,
   updateCategoryList,
   taskBoardCategories,
+  reorderCategoryList,
 } from '../src/modules/board/lib/categories.js';
 
 test('merge overlays stored names and icons onto default boards', () => {
@@ -43,4 +44,26 @@ test('updateCategoryList only rewrites the requested board', () => {
 test('task boards exclude the current board and non-kanban pages', () => {
   const targets = taskBoardCategories(DEFAULT_CATEGORIES, 'home');
   assert.deepEqual(targets.map(item => item.id), ['life', 'work', 'knowledge', 'entertainment']);
+});
+
+test('merge keeps stored board order and appends missing defaults', () => {
+  const merged = mergeCategories([
+    { id: 'entertainment' },
+    { id: 'home', name: '首页' },
+    { id: 'unknown' },
+  ]);
+  assert.deepEqual(merged.map(item => item.id), ['entertainment', 'home', 'life', 'work', 'knowledge', 'sync', 'linuxdo']);
+});
+
+test('reorderCategoryList inserts before or after the drop target', () => {
+  const ids = () => DEFAULT_CATEGORIES.map(item => item.id);
+  assert.deepEqual(reorderCategoryList(DEFAULT_CATEGORIES, 'home', 'home', 'after').map(item => item.id), ids());
+  assert.deepEqual(
+    reorderCategoryList(DEFAULT_CATEGORIES, 'entertainment', 'home', 'before').map(item => item.id),
+    ['entertainment', 'home', 'life', 'work', 'knowledge', 'sync', 'linuxdo'],
+  );
+  assert.deepEqual(
+    reorderCategoryList(DEFAULT_CATEGORIES, 'home', 'life', 'after').map(item => item.id),
+    ['life', 'home', 'work', 'knowledge', 'sync', 'entertainment', 'linuxdo'],
+  );
 });
