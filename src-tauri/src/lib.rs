@@ -297,6 +297,8 @@ pub fn run() {
                 app.handle().clone(),
                 app.state::<Arc<lan::LanRuntime>>().inner().clone(),
             );
+            // 上次若被强杀，本地输出可能还留在静音状态，启动时先恢复回来
+            audio::recover_stale_mute(app.handle());
             Ok(())
         })
         .manage(AppState::default())

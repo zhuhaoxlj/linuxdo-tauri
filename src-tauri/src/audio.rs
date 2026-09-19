@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};use std::time::{SystemTime, UNIX_EPOCH};
 use hmac::{Hmac, Mac};
 use serde::Serialize;
 use sha2::Sha256;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::lan::LanRuntime;
 
@@ -35,13 +35,18 @@ const HEADER_BYTES: usize = 16;
 const MAGIC: u16 = 0x414C;
 const VERSION: u8 = 1;
 const AUDIO_PROTO: &str = "alive-audio-v1";
+/// 记录"本地输出是被我们静音的"，用于进程被强杀后启动时恢复
+const MUTE_MARKER_FILE: &str = "audio-local-muted.marker";
 
 /// `@DEFAULT_MONITOR@` 是 PulseAudio/PipeWire 的特殊名，指向默认输出的监听源，
 /// 比写死 `alsa_output.xxx.monitor` 更可移植
 const CAPTURE_DEVICE: &str = "@DEFAULT_MONITOR@";
 const CAPTURE_LATENCY_MS: u32 = 10;
-/// 每这么多包回推一次状态给前端（400 包 ≈ 2 秒）
+/// 每这么多包回推一次状态给前端（400 包 ≈ 2 秒），同时复查一次目标端口
 const STATUS_EVERY_PACKETS: u64 = 400;
+/// 连续这么多次复查都看不到对端才判定离线（15 × 2s ≈ 30s）。
+/// 中继握手偶尔失败会把 peer 清空，容忍一下，否则一次抖动就掐断正在放的音乐。
+const MISSING_CHECKS_BEFORE_STOP: u32 = 15;
 
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -117,11 +122,12 @@ pub fn audio_start(
     // "手机当扬声器"的关键：电脑本地输出也静音，否则用户会同时听到电脑音箱和
     // 手机（延迟几百毫秒），叠在一起像回声/环境音。
     // 实测 monitor 是**静音前**取点，所以静音不影响采集。
-    let muted = mute_local_output();
+    let muted = mute_local_output(Some(&app));
 
     let rt = runtime.inner().clone();
     let app_for_thread = app.clone();
     let flag_for_thread = flag.clone();
+    let lan_for_thread = lan.inner().clone();
     std::thread::spawn(move || {
         let result = stream_loop(
             &rt,
@@ -132,9 +138,10 @@ pub fn audio_start(
             |status| {
                 let _ = app_for_thread.emit("audio-status", status);
             },
+            Some(lan_for_thread),
         );
         // 无论正常结束还是出错，都要把本地输出恢复回去
-        restore_local_output();
+        restore_local_output(Some(&app_for_thread));
         // 只有仍是当前会话才回收状态，否则会把新会话的 streaming 误置为 false
         if rt.is_current(&flag_for_thread) {
             let status = rt.update(|s| {
@@ -163,7 +170,7 @@ pub fn audio_stop(
     runtime: State<'_, Arc<AudioRuntime>>,
 ) -> AudioStatus {
     stop_current(&runtime);
-    restore_local_output();
+    restore_local_output(Some(&app));
     let status = runtime.update(|s| {
         s.streaming = false;
         s.target = None;
@@ -212,9 +219,11 @@ fn set_sink_mute(mute: bool) {
 /// 静音本地输出，返回是否由我们做了这次静音。
 ///
 /// 只记录"我们主动改的"状态：如果用户自己本来就静音了，退出时不替他取消静音。
-fn mute_local_output() -> bool {
+fn mute_local_output(app: Option<&AppHandle>) -> bool {
     match sink_muted() {
         Some(false) => {
+            // 先落盘再静音：万一在静音后立刻崩溃，启动时还能靠标记恢复
+            write_mute_marker(app);
             set_sink_mute(true);
             MUTED_BY_US.store(true, Ordering::SeqCst);
             true
@@ -226,9 +235,49 @@ fn mute_local_output() -> bool {
     }
 }
 
-fn restore_local_output() {
+fn restore_local_output(app: Option<&AppHandle>) {
     if MUTED_BY_US.swap(false, Ordering::SeqCst) {
         set_sink_mute(false);
+    }
+    clear_mute_marker(app);
+}
+
+/// 应用启动时调用。
+///
+/// 推流期间本地输出是静音的，如果进程被强杀（崩溃 / 被 kill），进程内的恢复逻辑
+/// 根本没机会跑，用户的电脑就会一直哑着，而且完全看不出原因。
+/// 所以静音时落一个标记文件，启动时发现残留标记就先把声音恢复回来。
+pub fn recover_stale_mute(app: &AppHandle) {
+    let Some(path) = mute_marker_path(app) else {
+        return;
+    };
+    if path.exists() {
+        println!("[alive-audio] 发现上次退出残留的静音标记，恢复本地输出");
+        set_sink_mute(false);
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+fn mute_marker_path(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|dir| dir.join(MUTE_MARKER_FILE))
+}
+
+fn write_mute_marker(app: Option<&AppHandle>) {
+    let Some(path) = app.and_then(mute_marker_path) else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, b"muted-by-alive-audio\n");
+}
+
+fn clear_mute_marker(app: Option<&AppHandle>) {
+    if let Some(path) = app.and_then(mute_marker_path) {
+        let _ = std::fs::remove_file(path);
     }
 }
 
@@ -238,6 +287,12 @@ fn restore_local_output() {
 static MUTED_BY_US: AtomicBool = AtomicBool::new(false);
 
 /// 进度通过回调上报，而不是直接依赖 `AppHandle`——这样联调测试也能跑真实代码路径。
+///
+/// `follow` 用来周期性复查手机当前的音频端口：手机的端口是临时端口，
+/// **Alive 一重启就变**，而这里如果只在开始时读一次，之后就会一直往一个已关闭的
+/// 端口发——包确实到了手机（UDP 计数在涨）但没人接收，表现为"能收包却没声音"，
+/// 而且发送端毫不知情，永远不会退出、也就永远不会恢复被静音的本地输出。
+/// 传 None 表示不复查（联调测试用）。
 fn stream_loop<F: Fn(AudioStatus)>(
     runtime: &Arc<AudioRuntime>,
     addr: &str,
@@ -245,7 +300,11 @@ fn stream_loop<F: Fn(AudioStatus)>(
     key: &[u8],
     stop: &AtomicBool,
     on_progress: F,
+    follow: Option<Arc<LanRuntime>>,
 ) -> Result<(), String> {
+    let mut target_addr = addr.to_string();
+    let mut target_port = port;
+    let mut missing_checks: u32 = 0;
     let mut child = Command::new("parec")
         .arg(format!("--device={CAPTURE_DEVICE}"))
         .arg("--format=s16le")
@@ -261,8 +320,8 @@ fn stream_loop<F: Fn(AudioStatus)>(
     let mut stdout = child.stdout.take().ok_or("parec 的 stdout 不可用")?;
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("创建 UDP socket 失败：{e}"))?;
     socket
-        .connect((addr, port))
-        .map_err(|e| format!("连接 {addr}:{port} 失败：{e}"))?;
+        .connect((target_addr.as_str(), target_port))
+        .map_err(|e| format!("连接 {target_addr}:{target_port} 失败：{e}"))?;
 
     let mut seq: u32 = 0;
     let mut packets: u64 = 0;
@@ -279,7 +338,39 @@ fn stream_loop<F: Fn(AudioStatus)>(
         seq = seq.wrapping_add(1);
         packets += 1;
         if packets % STATUS_EVERY_PACKETS == 0 {
-            on_progress(runtime.update(|s| s.packets = packets));
+            if let Some(lan) = follow.as_ref() {
+                match lan.peer().and_then(|p| p.audio_port.map(|ap| (p.addr, ap))) {
+                    Some((addr, port)) => {
+                        missing_checks = 0;
+                        if addr != target_addr || port != target_port {
+                            // 手机端 Alive 重启会换临时端口，跟过去，别继续往死端口发
+                            match socket.connect((addr.as_str(), port)) {
+                                Ok(()) => {
+                                    println!(
+                                        "[alive-audio] 跟随手机新端口 {target_addr}:{target_port} -> {addr}:{port}"
+                                    );
+                                    target_addr = addr;
+                                    target_port = port;
+                                }
+                                Err(e) => {
+                                    return Err(format!("切换到 {addr}:{port} 失败：{e}"));
+                                }
+                            }
+                        }
+                    }
+                    None => {
+                        // 别一次抖动就停：连续看不到对端才认为手机真的离线
+                        missing_checks += 1;
+                        if missing_checks >= MISSING_CHECKS_BEFORE_STOP {
+                            return Err("手机已离线，已停止推流".into());
+                        }
+                    }
+                }
+            }
+            on_progress(runtime.update(|s| {
+                s.packets = packets;
+                s.target = Some(format!("{target_addr}:{target_port}"));
+            }));
         }
     }
 
@@ -357,14 +448,14 @@ mod tests {
     fn live_mute_roundtrip_restores_original_state() {
         let before = sink_muted().expect("需要 pactl 与 PulseAudio/PipeWire");
 
-        let muted = mute_local_output();
+        let muted = mute_local_output(None);
         println!("静音前={before} 本次由我们静音={muted}");
         assert_eq!(muted, !before, "只有原本未静音时我们才该动手");
         assert_eq!(sink_muted(), Some(true), "静音后应为 yes");
 
         // 恢复必须幂等：命令线程和推流线程都可能调用
-        restore_local_output();
-        restore_local_output();
+        restore_local_output(None);
+        restore_local_output(None);
         assert_eq!(sink_muted(), Some(before), "必须恢复到原始状态");
         println!("已恢复到 before={before}");
     }
@@ -428,6 +519,7 @@ mod tests {
                 &key,
                 &stop_for_thread,
                 |_| {},
+                None, // 联调测试固定目标，不做端口跟随
             )
         });
 
