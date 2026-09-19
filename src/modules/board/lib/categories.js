@@ -58,3 +58,11 @@ export function updateCategoryList(categories, id, updates) {
     };
   });
 }
+
+export const NON_TASK_BOARD_IDS = new Set(['sync', 'linuxdo']);
+
+export function taskBoardCategories(categories, currentId) {
+  return (Array.isArray(categories) ? categories : []).filter(
+    item => item && item.id !== currentId && !NON_TASK_BOARD_IDS.has(item.id),
+  );
+}

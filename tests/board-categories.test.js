@@ -7,6 +7,7 @@ import {
   normalizeCategoryIcon,
   normalizeCategoryName,
   updateCategoryList,
+  taskBoardCategories,
 } from '../src/modules/board/lib/categories.js';
 
 test('merge overlays stored names and icons onto default boards', () => {
@@ -37,4 +38,9 @@ test('updateCategoryList only rewrites the requested board', () => {
   assert.equal(next.find(item => item.id === 'work').name, '项目');
   assert.equal(next.find(item => item.id === 'work').icon, '🎯');
   assert.equal(next.find(item => item.id === 'home').name, '首页');
+});
+
+test('task boards exclude the current board and non-kanban pages', () => {
+  const targets = taskBoardCategories(DEFAULT_CATEGORIES, 'home');
+  assert.deepEqual(targets.map(item => item.id), ['life', 'work', 'knowledge', 'entertainment']);
 });

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { KANBAN_COLUMNS, useBoard } from '../context/BoardContext';
+import { taskBoardCategories } from '../lib/categories';
 import KanbanColumn from '../components/KanbanColumn';
 import { sortPinnedTasks } from '../lib/tasks';
 import { useColumnWidths } from '../lib/useColumnWidths';
@@ -72,6 +73,7 @@ export default function BoardPage() {
   }, [reminderOpen]);
 
   const currentCategory = categories.find(category => category.id === activeCategory);
+  const moveTargets = useMemo(() => taskBoardCategories(categories, activeCategory), [categories, activeCategory]);
   const filteredTasks = useMemo(
     () => sortPinnedTasks(tasks.filter(task => task.category === activeCategory)),
     [tasks, activeCategory],
@@ -170,6 +172,7 @@ export default function BoardPage() {
                 finishDrop(id);
               },
             }}
+            moveTargets={moveTargets}
             onDropOnCard={(event, beforeId) => {
               event.preventDefault();
               event.stopPropagation();

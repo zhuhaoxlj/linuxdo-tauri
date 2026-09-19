@@ -183,7 +183,7 @@ body.kanban-resizing .kanban-cards { pointer-events: none; }
 .kanban-menu {
   position: fixed;
   z-index: 80;
-  min-width: 132px;
+  min-width: 168px;
   background: #fff;
   border: 1px solid #e6ebf3;
   border-radius: 9px;
@@ -202,6 +202,8 @@ body.kanban-resizing .kanban-cards { pointer-events: none; }
 }
 .kanban-menu button:hover { background: #eef3fb; }
 .kanban-menu button.danger { color: #bd4f54; }
+.kanban-menu-more { margin-left: auto; color: #718097; }
+.kanban-menu-board-icon { width: 1.15em; text-align: center; }
 .kanban-add-button {
   display: flex;
   align-items: center;

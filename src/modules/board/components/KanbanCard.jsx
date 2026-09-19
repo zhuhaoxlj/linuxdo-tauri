@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarPlus, Clock3, Copy, MoreHorizontal, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
+import { CalendarPlus, ChevronLeft, ChevronRight, Clock3, Copy, FolderInput, MoreHorizontal, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 import { copyCardContent } from '../lib/clipboardContent';
 import { linkSegments, openLinkFromEvent } from '../lib/links';
@@ -8,8 +8,9 @@ import ImageThumbnail from './ImageThumbnail';
 
 const copyMessages = { copying: '正在复制…', copied: '已复制到剪贴板', failed: '复制失败，请重试' };
 
-export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDragEnd, onDropOnCard, scheduledBlocks = [], onSchedule }) {
+export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDragEnd, onDropOnCard, scheduledBlocks = [], onSchedule, moveTargets = [] }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuView, setMenuView] = useState('actions');
   const [editing, setEditing] = useState(false);
   const [pasteError, setPasteError] = useState('');
   const [copyStatus, setCopyStatus] = useState('');
@@ -54,16 +55,21 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
       window.removeEventListener('resize', place);
       window.removeEventListener('scroll', place, true);
     };
-  }, [menuOpen]);
+  }, [menuOpen, menuView, moveTargets.length]);
 
   useEffect(() => {
-    if (!menuOpen) return undefined;
+    if (!menuOpen) {
+      setMenuView('actions');
+      return undefined;
+    }
     const close = event => {
       if (buttonRef.current?.contains(event.target) || menuRef.current?.contains(event.target)) return;
       setMenuOpen(false);
     };
     const onKey = event => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key !== 'Escape') return;
+      if (menuView === 'move') setMenuView('actions');
+      else setMenuOpen(false);
     };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', onKey);
@@ -71,7 +77,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
       document.removeEventListener('mousedown', close);
       document.removeEventListener('keydown', onKey);
     };
-  }, [menuOpen]);
+  }, [menuOpen, menuView]);
 
   // 编辑框随内容长高，换行后的多行卡片在编辑器里也能完整看到（上限 240px 后内部滚动）
   useLayoutEffect(() => {
@@ -242,24 +248,54 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
             role="menu"
             style={{ top: menuPos.top, left: menuPos.left }}
           >
-            <button type="button" role="menuitem" onClick={startEditing}>
-              <Pencil size={14} />编辑
-            </button>
-            {task.column !== 'done' && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSchedule(task.id); }}><CalendarPlus size={14} />安排时间</button>}
-            <button type="button" role="menuitem" onClick={() => {
-              if (editing) save();
-              setMenuOpen(false);
-              onUpdate(task.id, { pinned: !task.pinned });
-            }}>
-              {task.pinned ? <PinOff size={14} /> : <Pin size={14} />}
-              {task.pinned ? '取消置顶' : '置顶'}
-            </button>
-            <button type="button" role="menuitem" aria-label="复制卡片内容到剪贴板" disabled={copyStatus === 'copying'} onClick={copyContent}>
-              <Copy size={14} />复制
-            </button>
-            <button type="button" role="menuitem" className="danger" onClick={() => onDelete(task.id)}>
-              <Trash2 size={14} />删除
-            </button>
+            {menuView === 'move' ? (
+              <>
+                <button type="button" role="menuitem" onClick={() => setMenuView('actions')}>
+                  <ChevronLeft size={14} />返回
+                </button>
+                {moveTargets.map(board => (
+                  <button
+                    key={board.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onUpdate(task.id, { category: board.id });
+                      setMenuOpen(false);
+                    }}
+                  >
+                    <span className="kanban-menu-board-icon" aria-hidden="true">{board.icon}</span>
+                    {board.name}
+                  </button>
+                ))}
+              </>
+            ) : (
+              <>
+                <button type="button" role="menuitem" onClick={startEditing}>
+                  <Pencil size={14} />编辑
+                </button>
+                {task.column !== 'done' && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSchedule(task.id); }}><CalendarPlus size={14} />安排时间</button>}
+                <button type="button" role="menuitem" onClick={() => {
+                  if (editing) save();
+                  setMenuOpen(false);
+                  onUpdate(task.id, { pinned: !task.pinned });
+                }}>
+                  {task.pinned ? <PinOff size={14} /> : <Pin size={14} />}
+                  {task.pinned ? '取消置顶' : '置顶'}
+                </button>
+                {moveTargets.length > 0 && (
+                  <button type="button" role="menuitem" onClick={() => setMenuView('move')}>
+                    <FolderInput size={14} />移动到
+                    <ChevronRight size={14} className="kanban-menu-more" />
+                  </button>
+                )}
+                <button type="button" role="menuitem" aria-label="复制卡片内容到剪贴板" disabled={copyStatus === 'copying'} onClick={copyContent}>
+                  <Copy size={14} />复制
+                </button>
+                <button type="button" role="menuitem" className="danger" onClick={() => onDelete(task.id)}>
+                  <Trash2 size={14} />删除
+                </button>
+              </>
+            )}
           </div>,
           document.body,
         )}

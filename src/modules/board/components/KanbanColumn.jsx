@@ -24,6 +24,7 @@ export default function KanbanColumn({
   onDropOnColumn,
   onDropOnCard,
   isDropTarget,
+  moveTargets,
 }) {
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState('');
@@ -94,6 +95,7 @@ export default function KanbanColumn({
                 scheduledBlocks={scheduledByTask.get(taskRecordId(card)) || []}
                 onSchedule={onSchedule}
                 onDropOnCard={onDropOnCard}
+                moveTargets={moveTargets}
               />
             ))}
           </div>
