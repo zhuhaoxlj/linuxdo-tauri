@@ -15,7 +15,7 @@
 use std::io::Read;
 use std::net::UdpSocket;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};use std::time::{SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, Mac};
@@ -188,56 +188,70 @@ fn stop_current(runtime: &AudioRuntime) {
     }
 }
 
-/// 当前默认输出的静音状态；查不到（比如没有 pactl）返回 None。
-///
-/// **必须 `LC_ALL=C`**：pactl 的输出会跟随区域设置，中文环境下是 `Mute: 是`，
-/// 按英文 `yes` 判断会永远读成"未静音"——那会导致恢复时把用户自己设的静音也取消掉。
-/// （这个 bug 是被 `live_mute_roundtrip` 测试抓出来的。）
-fn sink_muted() -> Option<bool> {
+/// 默认输出的音量百分比（取第一个 `NN%`，与语言无关）
+fn sink_volume_percent() -> Option<u32> {
     let out = Command::new("pactl")
         .env("LC_ALL", "C")
-        .args(["get-sink-mute", "@DEFAULT_SINK@"])
+        .args(["get-sink-volume", "@DEFAULT_SINK@"])
         .output()
         .ok()?;
     if !out.status.success() {
         return None;
     }
-    Some(String::from_utf8_lossy(&out.stdout).trim().ends_with("yes"))
+    let text = String::from_utf8_lossy(&out.stdout);
+    let idx = text.find('%')?;
+    text[..idx]
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect::<String>()
+        .parse()
+        .ok()
 }
 
-fn set_sink_mute(mute: bool) {
+fn set_sink_volume_percent(percent: u32) {
     let _ = Command::new("pactl")
         .env("LC_ALL", "C")
         .args([
-            "set-sink-mute",
+            "set-sink-volume",
             "@DEFAULT_SINK@",
-            if mute { "1" } else { "0" },
+            &format!("{percent}%"),
         ])
         .output();
 }
 
-/// 静音本地输出，返回是否由我们做了这次静音。
+/// 让电脑本地不出声，返回是否由我们做了这次改动。
 ///
-/// 只记录"我们主动改的"状态：如果用户自己本来就静音了，退出时不替他取消静音。
+/// **用"音量归零"而不是静音开关**：实测 monitor 的采集与音量完全无关
+/// （音量 50% / 0% / 静音三种情况采集到的 rms 分别是 2168 / 2147 / 2126，
+/// 主频都是 880Hz），所以归零足以让电脑不出声，同时不去碰静音标志。
+/// 静音标志可能有副作用：实测环境里浏览器的音频流出现过 `抑制: 是`（被挂起），
+/// 而被挂起的流不产生音频，monitor 就只能采到静音。
+///
+/// 只记录"我们主动改的"状态：用户本来就是 0% 的话退出时不用恢复。
 fn mute_local_output(app: Option<&AppHandle>) -> bool {
-    match sink_muted() {
-        Some(false) => {
-            // 先落盘再静音：万一在静音后立刻崩溃，启动时还能靠标记恢复
-            write_mute_marker(app);
-            set_sink_mute(true);
-            MUTED_BY_US.store(true, Ordering::SeqCst);
-            true
-        }
-        _ => {
-            MUTED_BY_US.store(false, Ordering::SeqCst);
-            false
-        }
+    let Some(previous) = sink_volume_percent() else {
+        MUTED_BY_US.store(false, Ordering::SeqCst);
+        return false;
+    };
+    if previous == 0 {
+        MUTED_BY_US.store(false, Ordering::SeqCst);
+        return false;
     }
+    // 先落盘再改：万一改完立刻崩溃，启动时还能靠标记恢复
+    write_mute_marker(app, previous);
+    set_sink_volume_percent(0);
+    PREVIOUS_VOLUME.store(previous, Ordering::SeqCst);
+    MUTED_BY_US.store(true, Ordering::SeqCst);
+    true
 }
 
 fn restore_local_output(app: Option<&AppHandle>) {
     if MUTED_BY_US.swap(false, Ordering::SeqCst) {
-        set_sink_mute(false);
+        set_sink_volume_percent(PREVIOUS_VOLUME.load(Ordering::SeqCst));
     }
     clear_mute_marker(app);
 }
@@ -246,16 +260,19 @@ fn restore_local_output(app: Option<&AppHandle>) {
 ///
 /// 推流期间本地输出是静音的，如果进程被强杀（崩溃 / 被 kill），进程内的恢复逻辑
 /// 根本没机会跑，用户的电脑就会一直哑着，而且完全看不出原因。
-/// 所以静音时落一个标记文件，启动时发现残留标记就先把声音恢复回来。
+/// 所以改动时落一个标记文件（内含原始音量），启动时发现残留标记就先把音量恢复回来。
 pub fn recover_stale_mute(app: &AppHandle) {
     let Some(path) = mute_marker_path(app) else {
         return;
     };
-    if path.exists() {
-        println!("[alive-audio] 发现上次退出残留的静音标记，恢复本地输出");
-        set_sink_mute(false);
-        let _ = std::fs::remove_file(&path);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    if let Ok(previous) = text.trim().parse::<u32>() {
+        println!("[alive-audio] 发现上次退出残留的静音标记，把音量恢复到 {previous}%");
+        set_sink_volume_percent(previous);
     }
+    let _ = std::fs::remove_file(&path);
 }
 
 fn mute_marker_path(app: &AppHandle) -> Option<std::path::PathBuf> {
@@ -265,14 +282,14 @@ fn mute_marker_path(app: &AppHandle) -> Option<std::path::PathBuf> {
         .map(|dir| dir.join(MUTE_MARKER_FILE))
 }
 
-fn write_mute_marker(app: Option<&AppHandle>) {
+fn write_mute_marker(app: Option<&AppHandle>, previous_volume: u32) {
     let Some(path) = app.and_then(mute_marker_path) else {
         return;
     };
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    let _ = std::fs::write(&path, b"muted-by-alive-audio\n");
+    let _ = std::fs::write(&path, format!("{previous_volume}\n"));
 }
 
 fn clear_mute_marker(app: Option<&AppHandle>) {
@@ -280,6 +297,9 @@ fn clear_mute_marker(app: Option<&AppHandle>) {
         let _ = std::fs::remove_file(path);
     }
 }
+
+/// 推流前的原始音量，用于结束时恢复
+static PREVIOUS_VOLUME: AtomicU32 = AtomicU32::new(0);
 
 /// 进程级的"这次静音是不是我们做的"。
 /// 放在静态变量里是因为恢复动作可能发生在命令线程或推流线程，
@@ -440,24 +460,28 @@ mod tests {
         assert_eq!(&out[4..8], &[0, 0, 0, 1]); // seq 大端
     }
 
-    /// 静音往返联调：最危险的是"推流结束后没恢复，电脑一直哑着"。
+    /// 静音往返联调：最危险的是"推流结束后没恢复，电脑一直没声音"。
     /// 需要 PipeWire/PulseAudio 与 pactl：
-    ///     cargo test --lib audio::tests::live_mute -- --ignored --nocapture
+    ///     cargo test --lib audio::tests::live_silence -- --ignored --nocapture
     #[test]
     #[ignore]
-    fn live_mute_roundtrip_restores_original_state() {
-        let before = sink_muted().expect("需要 pactl 与 PulseAudio/PipeWire");
+    fn live_silence_roundtrip_restores_original_volume() {
+        let before = sink_volume_percent().expect("需要 pactl 与 PulseAudio/PipeWire");
+        if before == 0 {
+            set_sink_volume_percent(70);
+        }
+        let before = sink_volume_percent().unwrap();
 
         let muted = mute_local_output(None);
-        println!("静音前={before} 本次由我们静音={muted}");
-        assert_eq!(muted, !before, "只有原本未静音时我们才该动手");
-        assert_eq!(sink_muted(), Some(true), "静音后应为 yes");
+        println!("改前音量={before}% 本次由我们改动={muted}");
+        assert!(muted, "原本非 0 时应当动手");
+        assert_eq!(sink_volume_percent(), Some(0), "改动后应为 0%");
 
         // 恢复必须幂等：命令线程和推流线程都可能调用
         restore_local_output(None);
         restore_local_output(None);
-        assert_eq!(sink_muted(), Some(before), "必须恢复到原始状态");
-        println!("已恢复到 before={before}");
+        assert_eq!(sink_volume_percent(), Some(before), "必须恢复到原始音量");
+        println!("已恢复到 {before}%");
     }
 
     /// 真实链路联调：等手机广播 → 采集真实系统音频 → 推 4 秒 → 断言包数。
