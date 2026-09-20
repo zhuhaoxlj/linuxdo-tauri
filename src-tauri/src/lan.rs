@@ -27,7 +27,9 @@ use tokio_tungstenite::tungstenite::Message;
 const PROTO: &str = "alive-lan-v1";
 const SALT: &[u8] = b"alive-lan-v1";
 const INFO: &[u8] = b"alive-lan-ping";
-const PING_PATH: &str = "/alive/ping";
+pub(crate) const PING_PATH: &str = "/alive/ping";
+/// 长轮询事件端点（与手机端 LanServer.EVENTS_PATH 一致）
+pub(crate) const EVENTS_PATH: &str = "/alive/events";
 const FALLBACK_TOKEN: &str = "alive-lan-dev";
 
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
@@ -171,10 +173,17 @@ async fn session(app: &AppHandle, runtime: &Arc<LanRuntime>) -> Result<(), Strin
         let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
             continue;
         };
-        if value.get("type").and_then(|t| t.as_str()) != Some("lan") {
-            continue;
+        match value.get("type").and_then(|t| t.as_str()) {
+            // 中继兜底通道上的验证码
+            Some("otp") => {
+                match serde_json::from_value::<crate::otp::Otp>(value.clone()) {
+                    Ok(otp) => crate::otp::deliver(app, otp, "relay"),
+                    Err(e) => println!("[alive-otp] 解析中继验证码失败：{e}"),
+                }
+            }
+            Some("lan") => handle_announcement(app, runtime, &key, &value).await,
+            _ => {}
         }
-        handle_announcement(app, runtime, &key, &value).await;
     }
 
     Err("中继连接已关闭".into())
@@ -291,6 +300,15 @@ fn ping_message(ts: u64, nonce: &str) -> String {
     format!("{PROTO}|GET|{PING_PATH}|{ts}|{nonce}")
 }
 
+/// 供 otp 模块复用：按 "方法|路径|ts|nonce" 规范串签名
+pub(crate) fn sign_request(key: &[u8], method: &str, path: &str, ts: u64, nonce: &str) -> String {
+    sign(key, &request_message(method, path, ts, nonce))
+}
+
+fn request_message(method: &str, path: &str, ts: u64, nonce: &str) -> String {
+    format!("{PROTO}|{method}|{path}|{ts}|{nonce}")
+}
+
 fn sign(key: &[u8], message: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC 接受任意长度密钥");
     mac.update(message.as_bytes());
@@ -375,7 +393,7 @@ fn lan_request() -> String {
     .to_string()
 }
 
-fn now_secs() -> u64 {
+pub(crate) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())

@@ -5,6 +5,7 @@ import { isTauri } from '@tauri-apps/api/core';
 import { useQueryClient } from '@tanstack/react-query';
 import { BoardProvider } from './modules/board/context/BoardContext';
 import AppLayout from './shared/components/AppLayout';
+import OtpPopup from './shared/components/OtpPopup';
 import BoardPage from './modules/board/pages/BoardPage';
 
 const KnowledgePage = lazy(() => import('./modules/knowledge/pages/KnowledgePage'));
@@ -97,6 +98,9 @@ export default function App() {
           />
         </Routes>
       </AppLayout>
+      {/* 放在 AppLayout 之外：LinuxDo 页面用的是自己的布局，
+          弹窗若挂在里面就会在那个路由下消失 */}
+      <OtpPopup />
     </BoardProvider>
   );
 }

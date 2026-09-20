@@ -2,6 +2,7 @@ mod api;
 mod audio;
 mod auth;
 mod lan;
+mod otp;
 mod reminders;
 mod shared_storage;
 mod site_session;
@@ -294,6 +295,11 @@ pub fn run() {
             }
             // 局域网发现 + 握手验证：全平台启动，不依赖托盘
             lan::start(
+                app.handle().clone(),
+                app.state::<Arc<lan::LanRuntime>>().inner().clone(),
+            );
+            // 验证码：局域网长轮询订阅（中继通道在 lan::start 的订阅循环里处理）
+            otp::start_lan_poller(
                 app.handle().clone(),
                 app.state::<Arc<lan::LanRuntime>>().inner().clone(),
             );
