@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use hmac::{Hmac, Mac};
 use serde::Serialize;
 use sha2::Sha256;
@@ -32,6 +32,10 @@ const FALLBACK_TOKEN: &str = "alive-lan-dev";
 
 const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 const PROBE_READ_TIMEOUT: Duration = Duration::from_millis(3000);
+/// 对端信息多久算"不新鲜"：超过就再问一次地址
+const PEER_FRESH_SECS: u64 = 60;
+/// 主动查询的最小间隔（只在信息不新鲜时才真的发）
+const REQUEST_EVERY_SECS: u64 = 5;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +67,17 @@ pub struct LanRuntime {
 impl LanRuntime {
     fn snapshot(&self) -> LanStatus {
         self.status.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    /// 对端信息是否已经不新鲜（或干脆没有），需要再问一次地址
+    fn needs_discovery(&self, fresh_secs: u64) -> bool {
+        match self.status.lock() {
+            Ok(s) => match &s.peer {
+                Some(p) => now_secs().saturating_sub(p.updated_at) > fresh_secs,
+                None => true,
+            },
+            Err(_) => true,
+        }
     }
 
     /// P3 音频发送端要用：当前已验证可用的对端
@@ -121,8 +136,32 @@ async fn session(app: &AppHandle, runtime: &Arc<LanRuntime>) -> Result<(), Strin
     });
     let _ = app.emit("lan-status", status);
 
-    while let Some(incoming) = ws.next().await {
-        let message = incoming.map_err(|e| format!("中继连接中断：{e}"))?;
+    // 中继不存历史消息：手机的地址广播每 45 秒才一次，若刚好错过就得干等。
+    // 连上就主动问一次，并在对端信息不新鲜时继续问。
+    let _ = ws
+        .send(Message::Text(lan_request().into()))
+        .await
+        .map_err(|e| format!("发送发现请求失败：{e}"))?;
+
+    let mut request_ticker = tokio::time::interval(Duration::from_secs(REQUEST_EVERY_SECS));
+    request_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    request_ticker.tick().await; // 第一次 tick 立即返回，上面已经问过了
+
+    loop {
+        let message = tokio::select! {
+            incoming = ws.next() => {
+                let Some(incoming) = incoming else { break };
+                incoming.map_err(|e| format!("中继连接中断：{e}"))?
+            }
+            _ = request_ticker.tick() => {
+                if runtime.needs_discovery(PEER_FRESH_SECS) {
+                    if ws.send(Message::Text(lan_request().into())).await.is_err() {
+                        break;
+                    }
+                }
+                continue;
+            }
+        };
         let text = match message {
             Message::Text(t) => t.to_string(),
             Message::Binary(b) => String::from_utf8_lossy(&b).into_owned(),
@@ -180,6 +219,7 @@ async fn handle_announcement(
     for addr in &addrs {
         match probe(addr, port, key).await {
             Ok(rtt_ms) => {
+                println!("[alive-lan] 局域网通道就绪 {addr}:{port} rtt={rtt_ms}ms");
                 let status = runtime.update(|s| {
                     s.relay_connected = true;
                     s.last_error = None;
@@ -322,6 +362,17 @@ pub(crate) fn relay_url() -> Result<String, String> {
         return Err("中继地址为空".into());
     }
     Ok(trimmed.to_string())
+}
+
+/// 主动请求手机立刻广播一次局域网地址
+fn lan_request() -> String {
+    serde_json::json!({
+        "type": "lan-req",
+        "v": 1,
+        "role": "desktop",
+        "ts": now_secs(),
+    })
+    .to_string()
 }
 
 fn now_secs() -> u64 {
