@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
@@ -13,6 +14,12 @@ const AUTO_CLOSE_MS = 120_000;
  */
 export default function OtpPopup() {
   const [otp, setOtp] = useState(null);
+
+  // 关闭时通知 Rust 撤销置顶（见 otp.rs 的 focus_window）
+  const dismiss = useCallback(() => {
+    setOtp(null);
+    invoke('otp_popup_closed').catch(() => {});
+  }, []);
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState(0);
 
@@ -33,11 +40,11 @@ export default function OtpPopup() {
     const deadline = Date.now() + AUTO_CLOSE_MS;
     const timer = setInterval(() => {
       const left = deadline - Date.now();
-      if (left <= 0) setOtp(null);
+      if (left <= 0) dismiss();
       else setRemaining(Math.ceil(left / 1000));
     }, 500);
     return () => clearInterval(timer);
-  }, [otp]);
+  }, [otp, dismiss]);
 
   const copy = useCallback(async () => {
     if (!otp) return;
@@ -54,12 +61,12 @@ export default function OtpPopup() {
   useEffect(() => {
     if (!otp) return undefined;
     const onKey = event => {
-      if (event.key === 'Escape') setOtp(null);
+      if (event.key === 'Escape') dismiss();
       else if (event.key === 'Enter') void copy();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [otp, copy]);
+  }, [otp, copy, dismiss]);
 
   if (!otp) return null;
 
@@ -79,7 +86,7 @@ export default function OtpPopup() {
           <button type="button" className="otp-btn otp-btn-primary" onClick={copy}>
             {copied ? '已复制' : '复制验证码'}
           </button>
-          <button type="button" className="otp-btn" onClick={() => setOtp(null)}>
+          <button type="button" className="otp-btn" onClick={dismiss}>
             关闭
           </button>
         </div>

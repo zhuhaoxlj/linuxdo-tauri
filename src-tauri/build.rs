@@ -24,6 +24,7 @@ fn main() {
             "audio_status",
             "audio_start",
             "audio_stop",
+            "otp_popup_closed",
         ]),
     ))
     .expect("failed to build Tauri application");

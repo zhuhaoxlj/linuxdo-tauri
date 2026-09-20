@@ -28,6 +28,7 @@
     "allow-lan-status",
     "allow-audio-status",
     "allow-audio-start",
-    "allow-audio-stop"
+    "allow-audio-stop",
+    "allow-otp-popup-closed"
   ]
 }

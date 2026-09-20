@@ -366,6 +366,7 @@ pub fn run() {
             audio::audio_status,
             audio::audio_start,
             audio::audio_stop,
+            otp::otp_popup_closed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

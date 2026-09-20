@@ -47,13 +47,34 @@ pub fn deliver(app: &AppHandle, mut otp: Otp, via: &str) {
         "[alive-otp] via={via} code={} service={} sender={}",
         otp.code, otp.service, otp.sender
     );
-    // 窗口可能被收进托盘了，验证码必须能立刻看到
+    focus_window(app);
+    let _ = app.emit("otp-received", otp);
+}
+
+/**
+ * 把主窗口放到最前面。
+ *
+ * 只调 `set_focus()` 是不够的：GNOME 有"防抢焦点"策略，后台进程请求焦点时会被
+ * 拒绝，只在程序坞里晃一下图标——用户很容易整条错过验证码。
+ * **先 `set_always_on_top(true)` 再请求焦点**：置顶不受焦点策略约束，
+ * 即使焦点仍被拒，窗口也一定浮在其它窗口之上、看得见。
+ * 弹窗关闭时由前端调 `otp_popup_closed` 恢复。
+ */
+fn focus_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_always_on_top(true);
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
-    let _ = app.emit("otp-received", otp);
+}
+
+/// 弹窗关闭后撤销置顶，别让主窗口一直压着别的应用
+#[tauri::command]
+pub fn otp_popup_closed(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_always_on_top(false);
+    }
 }
 
 /// 常驻任务：一旦发现已验证可用的局域网通道，就挂长轮询收推送。
