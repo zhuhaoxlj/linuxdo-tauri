@@ -1,10 +1,13 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 /** 超过这个时间自动关掉：验证码本身有有效期，过期还留着的弹窗只会误导 */
 const AUTO_CLOSE_MS = 120_000;
+
+/** 复制成功后停留这么久再关闭：直接关掉会让人不确定到底复制成功没有 */
+const CLOSE_AFTER_COPY_MS = 700;
 
 /**
  * 手机解析出的验证码弹窗。
@@ -14,12 +17,21 @@ const AUTO_CLOSE_MS = 120_000;
  */
 export default function OtpPopup() {
   const [otp, setOtp] = useState(null);
+  const closeTimer = useRef(null);
+
+  const clearCloseTimer = useCallback(() => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  }, []);
 
   // 关闭时通知 Rust 撤销置顶（见 otp.rs 的 focus_window）
   const dismiss = useCallback(() => {
+    clearCloseTimer();
     setOtp(null);
     invoke('otp_popup_closed').catch(() => {});
-  }, []);
+  }, [clearCloseTimer]);
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState(0);
 
@@ -29,11 +41,17 @@ export default function OtpPopup() {
     let unlisten;
     listen('otp-received', event => {
       if (!active) return;
+      // 新验证码到来时取消上一条的延迟关闭，否则会把新弹窗一起关掉
+      clearCloseTimer();
       setOtp(event.payload);
       setCopied(false);
     }).then(dispose => { if (active) unlisten = dispose; else dispose(); });
-    return () => { active = false; unlisten?.(); };
-  }, []);
+    return () => {
+      active = false;
+      clearCloseTimer();
+      unlisten?.();
+    };
+  }, [clearCloseTimer]);
 
   useEffect(() => {
     if (!otp) return undefined;
@@ -55,7 +73,13 @@ export default function OtpPopup() {
       return;
     }
     setCopied(true);
-  }, [otp]);
+    // 复制完就没什么可看的了，短暂显示"已复制"后自动收起
+    clearCloseTimer();
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      dismiss();
+    }, CLOSE_AFTER_COPY_MS);
+  }, [otp, dismiss, clearCloseTimer]);
 
   // 回车即可复制；Esc 关闭
   useEffect(() => {
