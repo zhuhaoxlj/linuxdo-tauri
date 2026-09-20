@@ -30,10 +30,14 @@ export default function AudioControl({ lan, audio, onToggle }) {
         {streaming ? '⏹ 停止推送音频' : '🎧 推到手机当扬声器'}
       </button>
       {streaming && audio?.localMuted ? (
-        <p className="lan-audio-meta">电脑已静音 · 已发送 {audio.packets} 包</p>
+        <p className="lan-audio-meta">
+          电脑已静音 · 已发送 {audio.packets} 包 · 电平 {audio.level ?? 0}
+        </p>
       ) : null}
       {streaming && !audio?.localMuted && audio?.packets > 0 ? (
-        <p className="lan-audio-meta">已发送 {audio.packets} 包</p>
+        <p className="lan-audio-meta">
+          已发送 {audio.packets} 包 · 电平 {audio.level ?? 0}
+        </p>
       ) : null}
       {streaming && audio?.packets > 400 && audio?.level === 0 ? (
         <p className="lan-audio-warn">
