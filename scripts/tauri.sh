@@ -26,5 +26,5 @@ if [[ ${#packages[@]} -ne 1 ]]; then
 fi
 
 deb=$(realpath "${packages[0]}")
-echo "Installing $deb"
-/usr/bin/pkexec /usr/bin/dpkg -i "$deb"
+echo "Installing $deb (including required audio tools)"
+/usr/bin/pkexec /usr/bin/apt-get install --no-remove --reinstall "$deb"

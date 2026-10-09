@@ -21,6 +21,8 @@ fn main() {
             // 否则不会生成 allow-* 权限，前端 invoke 会被 capability 直接拒绝
             // （事件推送不受此限制，所以光看界面会以为没问题）。
             "lan_status",
+            "relay_settings",
+            "save_relay_settings",
             "audio_status",
             "audio_start",
             "audio_stop",

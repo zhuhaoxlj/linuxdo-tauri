@@ -1,5 +1,5 @@
 import React, { useEffect, lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { isTauri } from '@tauri-apps/api/core';
 import { useQueryClient } from '@tanstack/react-query';
@@ -9,6 +9,7 @@ import OtpPopup from './shared/components/OtpPopup';
 import BoardPage from './modules/board/pages/BoardPage';
 
 const KnowledgePage = lazy(() => import('./modules/knowledge/pages/KnowledgePage'));
+const GlobalSettingsPage = lazy(() => import('./shared/components/GlobalSettingsPage'));
 const SyncPage = lazy(() => import('./modules/sync/pages/SyncPage'));
 
 // 预加载 LinuxDo 模块
@@ -32,6 +33,9 @@ const WARMUP_DELAY = 800;
 
 export default function App() {
   const queries = useQueryClient();
+  const location = useLocation();
+  const legacyPhoneSettings = location.pathname === '/linuxdo/settings'
+    && new URLSearchParams(location.search).get('tab') === 'phone';
 
   // 处理外部链接
   useEffect(() => {
@@ -81,6 +85,11 @@ export default function App() {
               <KnowledgePage />
             </Suspense>
           } />
+          <Route path="/settings" element={
+            <Suspense fallback={<div className="p-8" role="status">正在打开设置…</div>}>
+              <GlobalSettingsPage />
+            </Suspense>
+          } />
           <Route path="/sync" element={
             <Suspense fallback={<div className="p-8" role="status">正在打开同步配对…</div>}>
               <SyncPage />
@@ -90,7 +99,7 @@ export default function App() {
           {/* LinuxDo 模块 - 使用 Suspense 包裹 */}
           <Route 
             path="/linuxdo/*" 
-            element={
+            element={legacyPhoneSettings ? <Navigate to="/settings" replace /> :
               <Suspense fallback={<LinuxDoLoading />}>
                 <LinuxDoModule />
               </Suspense>

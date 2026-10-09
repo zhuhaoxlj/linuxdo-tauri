@@ -26,6 +26,8 @@
     "allow-reminder-status",
     "allow-take-reminder-open",
     "allow-lan-status",
+    "allow-relay-settings",
+    "allow-save-relay-settings",
     "allow-audio-status",
     "allow-audio-start",
     "allow-audio-stop",

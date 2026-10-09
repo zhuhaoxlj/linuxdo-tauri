@@ -34,7 +34,7 @@
     ],
     "linux": {
       "deb": {
-        "depends": [],
+        "depends": ["pulseaudio-utils"],
         "desktopTemplate": "linux/LinuxDo.desktop"
       }
     }

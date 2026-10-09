@@ -363,6 +363,8 @@ pub fn run() {
             reminders::reminder_status,
             reminders::take_reminder_open,
             lan::lan_status,
+            lan::relay_settings,
+            lan::save_relay_settings,
             audio::audio_status,
             audio::audio_start,
             audio::audio_stop,

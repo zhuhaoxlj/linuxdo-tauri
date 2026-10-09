@@ -7,10 +7,10 @@
 //! 也可能被 VPN 路由劫持。握手成功的那个地址才是真的可用通道。
 //!
 //! 密钥不引入新配置：直接从 `~/.config/alive-relay/url` 里的 token 派生
-//! （HKDF-SHA256），与手机端算法一一对应。中继 token 全程留在 Rust 侧，
-//! 不进 WebView，与 `auth.rs` / `site_session.rs` 的既有做法一致。
+//! （HKDF-SHA256），与手机端算法一一对应。已有中继 token 不回传 WebView；
+//! 设置页输入的新 token 仅提交给 Rust 持久化，不存浏览器存储。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -56,6 +56,8 @@ pub struct LanPeer {
 pub struct LanStatus {
     /// 是否已订阅上中继（订阅不上就收不到手机的地址广播）
     pub relay_connected: bool,
+    /// 缺少配置时，界面提供设置入口，而不是泛化为连接失败。
+    pub configuration_required: bool,
     /// 已验证可用的局域网通道
     pub peer: Option<LanPeer>,
     pub last_error: Option<String>,
@@ -64,6 +66,7 @@ pub struct LanStatus {
 #[derive(Default)]
 pub struct LanRuntime {
     status: Mutex<LanStatus>,
+    reconnect: tokio::sync::Notify,
 }
 
 impl LanRuntime {
@@ -107,7 +110,14 @@ pub fn start(app: AppHandle, runtime: Arc<LanRuntime>) {
     tauri::async_runtime::spawn(async move {
         let mut backoff = 2u64;
         loop {
-            match session(&app, &runtime).await {
+            let result = tokio::select! {
+                result = session(&app, &runtime) => result,
+                _ = runtime.reconnect.notified() => {
+                    backoff = 2;
+                    continue;
+                }
+            };
+            match result {
                 Ok(()) => backoff = 2,
                 Err(error) => {
                     let status = runtime.update(|s| {
@@ -118,13 +128,20 @@ pub fn start(app: AppHandle, runtime: Arc<LanRuntime>) {
                     let _ = app.emit("lan-status", status);
                 }
             }
-            tokio::time::sleep(Duration::from_secs(backoff)).await;
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_secs(backoff)) => {},
+                _ = runtime.reconnect.notified() => { backoff = 2; continue; }
+            }
             backoff = (backoff * 2).min(30);
         }
     });
 }
 
 async fn session(app: &AppHandle, runtime: &Arc<LanRuntime>) -> Result<(), String> {
+    let status = runtime.update(|s| {
+        s.configuration_required = relay_url().is_err();
+    });
+    let _ = app.emit("lan-status", status);
     let url = relay_url()?;
     let key = hkdf_sha256(token_from_url(&url).as_bytes(), SALT, INFO, 32);
 
@@ -175,12 +192,10 @@ async fn session(app: &AppHandle, runtime: &Arc<LanRuntime>) -> Result<(), Strin
         };
         match value.get("type").and_then(|t| t.as_str()) {
             // 中继兜底通道上的验证码
-            Some("otp") => {
-                match serde_json::from_value::<crate::otp::Otp>(value.clone()) {
-                    Ok(otp) => crate::otp::deliver(app, otp, "relay"),
-                    Err(e) => println!("[alive-otp] 解析中继验证码失败：{e}"),
-                }
-            }
+            Some("otp") => match serde_json::from_value::<crate::otp::Otp>(value.clone()) {
+                Ok(otp) => crate::otp::deliver(app, otp, "relay"),
+                Err(e) => println!("[alive-otp] 解析中继验证码失败：{e}"),
+            },
             Some("lan") => handle_announcement(app, runtime, &key, &value).await,
             _ => {}
         }
@@ -340,12 +355,7 @@ fn hkdf_sha256(ikm: &[u8], salt: &[u8], info: &[u8], length: usize) -> Vec<u8> {
 /// P3 音频发送端复用同一把派生密钥（与手机端 LanAudioPlayer 里的完全一致）
 pub(crate) fn lan_key() -> Result<Vec<u8>, String> {
     let url = relay_url()?;
-    Ok(hkdf_sha256(
-        token_from_url(&url).as_bytes(),
-        SALT,
-        INFO,
-        32,
-    ))
+    Ok(hkdf_sha256(token_from_url(&url).as_bytes(), SALT, INFO, 32))
 }
 
 fn token_from_url(raw: &str) -> String {
@@ -361,6 +371,148 @@ fn token_from_url(raw: &str) -> String {
         .unwrap_or_else(|| FALLBACK_TOKEN.to_string())
 }
 
+fn relay_config_path() -> Result<PathBuf, String> {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "找不到用户目录，无法读取中继地址".to_string())?;
+    Ok(Path::new(&home)
+        .join(".config")
+        .join("alive-relay")
+        .join("url"))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RelaySettings {
+    configured: bool,
+    endpoint: String,
+    has_token: bool,
+    environment_override: bool,
+}
+
+fn relay_settings_snapshot() -> RelaySettings {
+    let environment_override =
+        std::env::var("ALIVE_RELAY_URL").is_ok_and(|value| !value.trim().is_empty());
+    let value = relay_url().ok();
+    relay_settings_from_url(value.as_deref(), environment_override)
+}
+
+fn relay_settings_from_url(value: Option<&str>, environment_override: bool) -> RelaySettings {
+    let parsed = value.and_then(|value| url::Url::parse(value).ok());
+    let has_token = parsed.as_ref().is_some_and(|url| {
+        url.query_pairs()
+            .any(|(key, value)| key == "token" && !value.is_empty())
+    });
+    let endpoint = parsed
+        .map(|mut url| {
+            // 不向 WebView 返回任何查询参数、凭证或片段。
+            url.set_query(None);
+            url.set_fragment(None);
+            let _ = url.set_username("");
+            let _ = url.set_password(None);
+            url.to_string()
+        })
+        .unwrap_or_default();
+    RelaySettings {
+        configured: !endpoint.is_empty(),
+        endpoint,
+        has_token,
+        environment_override,
+    }
+}
+
+#[tauri::command]
+pub fn relay_settings() -> RelaySettings {
+    relay_settings_snapshot()
+}
+
+fn configured_url(endpoint: &str, token: &str) -> Result<String, String> {
+    let mut url = url::Url::parse(endpoint.trim())
+        .map_err(|_| "请输入有效的 WebSocket 中继地址".to_string())?;
+    if !matches!(url.scheme(), "ws" | "wss") || url.host_str().is_none() {
+        return Err("中继地址必须以 wss:// 或 ws:// 开头".into());
+    }
+    if !url.username().is_empty()
+        || url.password().is_some()
+        || url.fragment().is_some()
+        || url.query().is_some()
+    {
+        return Err(
+            "地址中不要包含用户名、密码、查询参数或片段；请在认证令牌栏单独填写 token".into(),
+        );
+    }
+    if token.trim().is_empty() {
+        return Err("请填写与手机 Alive 一致的认证令牌".into());
+    }
+    url.query_pairs_mut().append_pair("token", token.trim());
+    Ok(url.to_string())
+}
+
+fn persist_relay_url(path: &Path, value: &str) -> Result<(), String> {
+    use std::io::Write;
+    let parent = path.parent().ok_or("无效的配置目录")?;
+    std::fs::create_dir_all(parent).map_err(|_| "创建中继配置目录失败".to_string())?;
+    let temporary = parent.join(format!(".url-{}", uuid::Uuid::new_v4()));
+    let result = (|| {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options
+            .open(&temporary)
+            .map_err(|_| "创建中继配置失败".to_string())?;
+        writeln!(file, "{value}").map_err(|_| "写入中继配置失败".to_string())?;
+        file.sync_all()
+            .map_err(|_| "保存中继配置失败".to_string())?;
+        std::fs::rename(&temporary, path).map_err(|_| "替换中继配置失败".to_string())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[tauri::command]
+pub fn save_relay_settings(
+    app: AppHandle,
+    runtime: tauri::State<'_, Arc<LanRuntime>>,
+    endpoint: String,
+    token: String,
+) -> Result<RelaySettings, String> {
+    if relay_settings_snapshot().environment_override {
+        return Err("当前由 ALIVE_RELAY_URL 环境变量管理；请移除环境变量后再在设置中保存".into());
+    }
+    // 空输入保留已有令牌；从不把已有令牌返回给前端。
+    let existing = relay_url()
+        .ok()
+        .and_then(|value| url::Url::parse(&value).ok());
+    let token = if token.trim().is_empty() {
+        existing
+            .and_then(|url| {
+                url.query_pairs()
+                    .find(|(key, _)| key == "token")
+                    .map(|(_, value)| value.into_owned())
+            })
+            .unwrap_or_default()
+    } else {
+        token
+    };
+    let value = configured_url(&endpoint, &token)?;
+    persist_relay_url(&relay_config_path()?, &value)?;
+    let status = runtime.update(|s| {
+        s.relay_connected = false;
+        s.configuration_required = false;
+        s.peer = None;
+        s.last_error = None;
+    });
+    let _ = app.emit("lan-status", status);
+    runtime.reconnect.notify_one();
+    Ok(relay_settings_snapshot())
+}
+
 /// 与 `alive-relay` CLI 用同一份配置，用户不必再填一次
 pub(crate) fn relay_url() -> Result<String, String> {
     if let Ok(from_env) = std::env::var("ALIVE_RELAY_URL") {
@@ -369,12 +521,9 @@ pub(crate) fn relay_url() -> Result<String, String> {
             return Ok(trimmed.to_string());
         }
     }
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "找不到用户目录，无法读取中继地址".to_string())?;
-    let path = Path::new(&home).join(".config").join("alive-relay").join("url");
+    let path = relay_config_path()?;
     let text = std::fs::read_to_string(&path)
-        .map_err(|_| format!("读取中继地址失败：{}", path.display()))?;
+        .map_err(|_| "尚未配置手机连接，请前往设置 → 手机连接填写中继地址和认证令牌".to_string())?;
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err("中继地址为空".into());
@@ -403,6 +552,65 @@ pub(crate) fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_never_return_saved_credentials() {
+        let settings = relay_settings_from_url(
+            Some("wss://user:password@example.org/ws?token=private-token&secret=hidden#fragment"),
+            false,
+        );
+        assert!(settings.configured);
+        assert!(settings.has_token);
+        assert_eq!(settings.endpoint, "wss://example.org/ws");
+        let json = serde_json::to_string(&settings).unwrap();
+        for secret in ["password", "private-token", "hidden", "fragment", "user:"] {
+            assert!(!json.contains(secret));
+        }
+        let missing = relay_settings_from_url(None, false);
+        assert!(!missing.configured);
+        assert!(!missing.has_token);
+    }
+
+    #[test]
+    fn settings_validate_and_encode_credentials() {
+        let value = configured_url(" wss://example.org/alive/ws ", "a&b+c=?/#").unwrap();
+        assert_eq!(token_from_url(&value), "a&b+c=?/#");
+        for endpoint in [
+            "https://example.org/ws",
+            "not a url",
+            "wss://user:pass@example.org/ws",
+            "wss://example.org/ws?token=secret",
+            "wss://example.org/ws#fragment",
+        ] {
+            let error = configured_url(endpoint, "private-token").unwrap_err();
+            assert!(!error.contains("private-token"));
+            assert!(!error.contains("secret"));
+        }
+        assert!(configured_url("wss://example.org/ws", " ").is_err());
+    }
+
+    #[test]
+    fn settings_persist_atomically_with_private_permissions() {
+        let directory =
+            std::env::temp_dir().join(format!("alive-config-test-{}", uuid::Uuid::new_v4()));
+        let path = directory.join("url");
+        persist_relay_url(&path, "wss://example.org/ws?token=first").unwrap();
+        persist_relay_url(&path, "wss://example.org/ws?token=second").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "wss://example.org/ws?token=second\n"
+        );
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        std::fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn token_extraction_handles_query_and_fallback() {
@@ -456,7 +664,7 @@ mod tests {
     #[ignore]
     async fn live_discover_and_handshake() {
         let url = relay_url().expect("读取中继地址失败");
-        println!("中继: {}", url);
+        println!("中继配置已读取（认证令牌不输出）");
         let key = hkdf_sha256(token_from_url(&url).as_bytes(), SALT, INFO, 32);
 
         let (mut ws, _) = connect_async(url.as_str()).await.expect("连接中继失败");
@@ -470,7 +678,9 @@ mod tests {
                 .await
                 .expect("等广播超时");
             let message = incoming.expect("中继关闭").expect("中继消息错误");
-            let Message::Text(text) = message else { continue };
+            let Message::Text(text) = message else {
+                continue;
+            };
             let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
                 continue;
             };

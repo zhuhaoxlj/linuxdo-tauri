@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 
 /**
  * 侧边栏底部的局域网直连状态。
@@ -12,7 +13,9 @@ export default function LanStatusBadge({ status }) {
   return (
     <p className={`lan-status lan-status-${tone}`} title={title || text}>
       <span className="lan-status-dot" aria-hidden="true" />
-      <span>{text}</span>
+      {status && !status.peer && !status.relayConnected
+        ? <Link to="/settings">{text} · 设置</Link>
+        : <span>{text}</span>}
     </p>
   );
 }
@@ -27,6 +30,9 @@ function describe(status) {
       tone: 'ok',
       title: `${device || 'Alive'} @ ${addr}:${port}`,
     };
+  }
+  if (status.configurationRequired) {
+    return { text: '手机连接：待配置', tone: 'warn', title: '点击打开设置，填写中继地址和认证令牌' };
   }
   if (!status.relayConnected) {
     return { text: '局域网：中继未连接', tone: 'warn', title: status.lastError || '' };

@@ -14,9 +14,10 @@
 
 use std::io::Read;
 use std::net::UdpSocket;
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, Mac};
 use serde::Serialize;
@@ -64,6 +65,7 @@ pub struct AudioStatus {
 
 #[derive(Default)]
 pub struct AudioRuntime {
+    lifecycle: Mutex<()>,
     status: Mutex<AudioStatus>,
     /// 每次会话换一个新的停止标志：旧线程持有自己那份，不会被新会话的 false 复活
     stop: Mutex<Option<Arc<AtomicBool>>>,
@@ -103,8 +105,22 @@ pub fn audio_start(
     runtime: State<'_, Arc<AudioRuntime>>,
     lan: State<'_, Arc<LanRuntime>>,
 ) -> Result<AudioStatus, String> {
-    // 幂等：先把上一次停掉
+    // 串行化会话切换与旧线程清理，避免旧会话恢复新会话的音量。
+    let _lifecycle = runtime
+        .lifecycle
+        .lock()
+        .map_err(|_| "音频会话锁异常".to_string())?;
     stop_current(&runtime);
+    restore_local_output(Some(&app));
+    let stopped = runtime.update(|s| {
+        s.streaming = false;
+        s.local_muted = false;
+        s.target = None;
+        s.packets = 0;
+        s.level = 0;
+        s.last_error = None;
+    });
+    let _ = app.emit("audio-status", stopped);
 
     let peer = lan
         .peer()
@@ -115,17 +131,25 @@ pub fn audio_start(
     let key = crate::lan::lan_key()?;
     let target = format!("{}:{}", peer.addr, audio_port);
     let addr = peer.addr.clone();
+    // 在置为推流和静音电脑之前启动采集：缺少依赖直接返回可见错误。
+    let capture = start_capture()?;
 
     let flag = Arc::new(AtomicBool::new(false));
-    *runtime
-        .stop
-        .lock()
-        .map_err(|_| "状态锁异常".to_string())? = Some(flag.clone());
+    *runtime.stop.lock().map_err(|_| "状态锁异常".to_string())? = Some(flag.clone());
 
     // "手机当扬声器"的关键：电脑本地输出也静音，否则用户会同时听到电脑音箱和
     // 手机（延迟几百毫秒），叠在一起像回声/环境音。
     // 实测 monitor 是**静音前**取点，所以静音不影响采集。
     let muted = mute_local_output(Some(&app));
+    let status = runtime.update(|s| {
+        s.streaming = true;
+        s.target = Some(target);
+        s.packets = 0;
+        s.level = 0;
+        s.local_muted = muted;
+        s.last_error = None;
+    });
+    let _ = app.emit("audio-status", status.clone());
 
     let rt = runtime.inner().clone();
     let app_for_thread = app.clone();
@@ -142,11 +166,15 @@ pub fn audio_start(
                 let _ = app_for_thread.emit("audio-status", status);
             },
             Some(lan_for_thread),
+            Some(capture),
         );
-        // 无论正常结束还是出错，都要把本地输出恢复回去
-        restore_local_output(Some(&app_for_thread));
-        // 只有仍是当前会话才回收状态，否则会把新会话的 streaming 误置为 false
+        let _lifecycle = rt
+            .lifecycle
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        // 旧会话的恢复已在 stop/start 中完成；不能改新会话的音量或状态。
         if rt.is_current(&flag_for_thread) {
+            restore_local_output(Some(&app_for_thread));
             let status = rt.update(|s| {
                 s.streaming = false;
                 s.local_muted = false;
@@ -156,22 +184,15 @@ pub fn audio_start(
         }
     });
 
-    let status = runtime.update(|s| {
-        s.streaming = true;
-        s.target = Some(target);
-        s.packets = 0;
-        s.local_muted = muted;
-        s.last_error = None;
-    });
-    let _ = app.emit("audio-status", status.clone());
     Ok(status)
 }
 
 #[tauri::command]
-pub fn audio_stop(
-    app: AppHandle,
-    runtime: State<'_, Arc<AudioRuntime>>,
-) -> AudioStatus {
+pub fn audio_stop(app: AppHandle, runtime: State<'_, Arc<AudioRuntime>>) -> AudioStatus {
+    let _lifecycle = runtime
+        .lifecycle
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     stop_current(&runtime);
     restore_local_output(Some(&app));
     let status = runtime.update(|s| {
@@ -218,11 +239,7 @@ fn sink_volume_percent() -> Option<u32> {
 fn set_sink_volume_percent(percent: u32) {
     let _ = Command::new("pactl")
         .env("LC_ALL", "C")
-        .args([
-            "set-sink-volume",
-            "@DEFAULT_SINK@",
-            &format!("{percent}%"),
-        ])
+        .args(["set-sink-volume", "@DEFAULT_SINK@", &format!("{percent}%")])
         .output();
 }
 
@@ -316,19 +333,25 @@ static MUTED_BY_US: AtomicBool = AtomicBool::new(false);
 /// 端口发——包确实到了手机（UDP 计数在涨）但没人接收，表现为"能收包却没声音"，
 /// 而且发送端毫不知情，永远不会退出、也就永远不会恢复被静音的本地输出。
 /// 传 None 表示不复查（联调测试用）。
-fn stream_loop<F: Fn(AudioStatus)>(
-    runtime: &Arc<AudioRuntime>,
-    addr: &str,
-    port: u16,
-    key: &[u8],
-    stop: &AtomicBool,
-    on_progress: F,
-    follow: Option<Arc<LanRuntime>>,
-) -> Result<(), String> {
-    let mut target_addr = addr.to_string();
-    let mut target_port = port;
-    let mut missing_checks: u32 = 0;
-    let mut child = Command::new("parec")
+struct CaptureProcess(Child);
+
+impl Drop for CaptureProcess {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn capture_start_error(error: &std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        "缺少音频采集工具 parec，请安装 pulseaudio-utils 后重试".into()
+    } else {
+        format!("无法启动音频采集：{error}")
+    }
+}
+
+fn start_capture() -> Result<CaptureProcess, String> {
+    Command::new("parec")
         .arg(format!("--device={CAPTURE_DEVICE}"))
         .arg("--format=s16le")
         .arg(format!("--rate={SAMPLE_RATE}"))
@@ -338,9 +361,28 @@ fn stream_loop<F: Fn(AudioStatus)>(
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("无法启动 parec（需要 PipeWire 或 PulseAudio）：{e}"))?;
+        .map(CaptureProcess)
+        .map_err(|error| capture_start_error(&error))
+}
 
-    let mut stdout = child.stdout.take().ok_or("parec 的 stdout 不可用")?;
+fn stream_loop<F: Fn(AudioStatus)>(
+    runtime: &Arc<AudioRuntime>,
+    addr: &str,
+    port: u16,
+    key: &[u8],
+    stop: &AtomicBool,
+    on_progress: F,
+    follow: Option<Arc<LanRuntime>>,
+    capture: Option<CaptureProcess>,
+) -> Result<(), String> {
+    let mut target_addr = addr.to_string();
+    let mut target_port = port;
+    let mut missing_checks: u32 = 0;
+    let mut child = match capture {
+        Some(capture) => capture,
+        None => start_capture()?,
+    };
+    let mut stdout = child.0.stdout.take().ok_or("parec 的 stdout 不可用")?;
     let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| format!("创建 UDP socket 失败：{e}"))?;
     socket
         .connect((target_addr.as_str(), target_port))
@@ -356,7 +398,13 @@ fn stream_loop<F: Fn(AudioStatus)>(
 
     while !stop.load(Ordering::SeqCst) {
         if stdout.read_exact(&mut frame).is_err() {
-            break; // parec 退出或管道关闭
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
+            return Err("音频采集进程已退出，请检查 PipeWire/PulseAudio 的默认输出设备".into());
+        }
+        if stop.load(Ordering::SeqCst) {
+            break;
         }
         // 统计实际发出去的电平，供 UI 判断"采到的是不是静音"
         for chunk in frame.chunks_exact(2) {
@@ -370,6 +418,13 @@ fn stream_loop<F: Fn(AudioStatus)>(
         seq = seq.wrapping_add(1);
         packets += 1;
         if packets % STATUS_EVERY_PACKETS == 0 {
+            let _lifecycle = runtime
+                .lifecycle
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
             if let Some(lan) = follow.as_ref() {
                 match lan.peer().and_then(|p| p.audio_port.map(|ap| (p.addr, ap))) {
                     Some((addr, port)) => {
@@ -412,13 +467,13 @@ fn stream_loop<F: Fn(AudioStatus)>(
         }
     }
 
-    let _ = child.kill();
-    let _ = child.wait();
-
-    if packets == 0 {
+    if packets == 0 && !stop.load(Ordering::SeqCst) {
         return Err("没有采集到音频数据，请确认系统正在输出声音".into());
     }
-    runtime.update(|s| s.packets = packets);
+    // 独立联调无会话切换；生产会话只通过受会话锁保护的进度更新状态。
+    if follow.is_none() {
+        runtime.update(|s| s.packets = packets);
+    }
     Ok(())
 }
 
@@ -455,6 +510,66 @@ fn now_ms() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_capture_tool_has_actionable_error() {
+        let error = capture_start_error(&std::io::Error::from(std::io::ErrorKind::NotFound));
+        assert!(error.contains("parec"));
+        assert!(error.contains("pulseaudio-utils"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn early_capture_exit_is_reported_as_failure() {
+        let child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let runtime = Arc::new(AudioRuntime::default());
+        let error = stream_loop(
+            &runtime,
+            "127.0.0.1",
+            12345,
+            b"key",
+            &AtomicBool::new(false),
+            |_| {},
+            None,
+            Some(CaptureProcess(child)),
+        )
+        .unwrap_err();
+        assert!(error.contains("采集进程已退出"));
+        assert_eq!(runtime.snapshot().packets, 0);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn capture_process_is_reaped_on_network_failure() {
+        let child = Command::new("sh")
+            .args(["-c", "exec sleep 60"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let runtime = Arc::new(AudioRuntime::default());
+        assert!(stream_loop(
+            &runtime,
+            "invalid address",
+            12345,
+            b"key",
+            &AtomicBool::new(false),
+            |_| {},
+            None,
+            Some(CaptureProcess(child))
+        )
+        .is_err());
+        assert!(!Command::new("kill")
+            .args(["-0", &pid.to_string()])
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success());
+    }
 
     /// 用真实握手密钥对拍：手机端接受过这把密钥，Rust 必须算出同样的 tag，
     /// 否则所有音频包会被手机静默丢弃（这正是开发中踩过的坑）。
@@ -526,7 +641,9 @@ mod tests {
                 .expect("等广播超时")
                 .expect("中继关闭")
                 .expect("中继消息错误");
-            let Message::Text(text) = incoming else { continue };
+            let Message::Text(text) = incoming else {
+                continue;
+            };
             let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
                 continue;
             };
@@ -560,8 +677,14 @@ mod tests {
                 port,
                 &key,
                 &stop_for_thread,
-                |_| {},
+                |status| {
+                    println!(
+                        "音频采集：已发送 {} 包，RMS 电平 {}",
+                        status.packets, status.level
+                    )
+                },
                 None, // 联调测试固定目标，不做端口跟随
+                None,
             )
         });
 

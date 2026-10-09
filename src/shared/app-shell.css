@@ -326,3 +326,38 @@
 .otp-btn-primary { border-color: #4974bb; background: #4974bb; color: #fff; }
 .otp-btn-primary:hover { background: #3d66a8; }
 .otp-countdown { margin: 10px 0 0; color: #9aa8bb; font-size: 11px; }
+
+/* 应用级设置入口固定在侧栏底部，不参与看板重命名和排序。 */
+.app-settings-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #53647c;
+  font-size: 14px;
+  text-decoration: none;
+}
+.app-settings-link:hover,
+.app-settings-link.is-active { background: #eaf0fb; color: #365f9f; }
+.app-settings-link:focus-visible { outline: 2px solid #4974bb; outline-offset: 2px; }
+.global-settings-page {
+  --surface: #fff;
+  --line: #e6ebf3;
+  --text: #253348;
+  --muted: #718097;
+  --accent: #4974bb;
+  --accent-soft: #eaf0fb;
+  --shadow: none;
+  height: 100%;
+  overflow-y: auto;
+  padding: 36px clamp(20px, 5vw, 64px);
+}
+.global-settings-heading,
+.global-settings-page > section { max-width: 860px; margin-left: auto; margin-right: auto; }
+.global-settings-heading { margin-bottom: 26px; }
+.global-settings-heading h1 { margin: 0 0 8px; font-size: 26px; }
+.global-settings-heading p { margin: 0; color: #718097; }
+.global-settings-page .settings-section p { margin-top: 10px; margin-bottom: 18px; }
+.global-settings-links { display: flex; flex-wrap: wrap; gap: 12px; }

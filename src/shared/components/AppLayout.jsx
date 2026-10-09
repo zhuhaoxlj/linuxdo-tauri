@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import '../../modules/board/board.css';
 import '../app-shell.css';
 import { useBoard } from '../../modules/board/context/BoardContext';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { Settings } from 'lucide-react';
 import AppNavItem from './AppNavItem';
 import LanStatusBadge from './LanStatusBadge';
 import AudioControl from './AudioControl';
@@ -64,8 +65,9 @@ export default function AppLayout({ children }) {
 
   const toggleAudio = () => {
     const command = audioStatus?.streaming ? 'audio_stop' : 'audio_start';
+    // 状态以 Rust 的事件为准：命令响应可能比采集失败事件更晚返回，
+    // 用响应覆盖状态会把已经失败的会话重新显示成正在推流。
     invoke(command)
-      .then(status => setAudioStatus(status))
       .catch(error => setAudioStatus(prev => ({ ...(prev || {}), lastError: String(error) })));
   };
 
@@ -120,7 +122,8 @@ export default function AppLayout({ children }) {
   const isLinuxDoActive = location.pathname.startsWith('/linuxdo');
   const isKnowledgeActive = location.pathname.startsWith('/knowledge');
   const isSyncActive = location.pathname.startsWith('/sync');
-  const currentActive = isLinuxDoActive ? 'linuxdo' : isKnowledgeActive ? 'knowledge' : isSyncActive ? 'sync' : activeCategory;
+  const isSettingsActive = location.pathname === '/settings';
+  const currentActive = isSettingsActive ? 'settings' : isLinuxDoActive ? 'linuxdo' : isKnowledgeActive ? 'knowledge' : isSyncActive ? 'sync' : activeCategory;
 
   // 如果在 LinuxDo 模块内，不显示外层侧边栏，让 LinuxDo 使用自己的布局
   if (isLinuxDoActive) {
@@ -162,6 +165,10 @@ export default function AppLayout({ children }) {
 
         {/* 底部信息 */}
         <div className="app-sidebar-footer">
+          <NavLink to="/settings" className={({ isActive }) => `app-settings-link${isActive ? ' is-active' : ''}`}>
+            <Settings size={19} aria-hidden="true" />
+            <span>设置</span>
+          </NavLink>
           <LanStatusBadge status={lanStatus} />
           <AudioControl lan={lanStatus} audio={audioStatus} onToggle={toggleAudio} />
           <p>快速启动 · 高效管理</p>
