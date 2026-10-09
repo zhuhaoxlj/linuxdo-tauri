@@ -8,7 +8,7 @@ import ImageThumbnail from './ImageThumbnail';
 
 const copyMessages = { copying: '正在复制…', copied: '已复制到剪贴板', failed: '复制失败，请重试' };
 
-export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDragEnd, onDropOnCard, scheduledBlocks = [], onSchedule, moveTargets = [] }) {
+export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStart, onDragClickCapture, isDragging, dropPosition, scheduledBlocks = [], onSchedule, moveTargets = [] }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuView, setMenuView] = useState('actions');
   const [editing, setEditing] = useState(false);
@@ -135,13 +135,14 @@ export default function KanbanCard({ task, onUpdate, onDelete, onDragStart, onDr
   return (
     <article
       ref={cardRef}
-      className={`kanban-card${task.pinned ? ' is-pinned' : ''}`}
+      className={`kanban-card${task.pinned ? ' is-pinned' : ''}${isDragging ? ' is-dragging' : ''}${dropPosition ? ` drop-${dropPosition}` : ''}`}
       data-task-id={task.id}
-      draggable={!editing && !menuOpen}
-      onDragStart={event => onDragStart(event, task.id)}
-      onDragEnd={onDragEnd}
-      onDragOver={event => event.preventDefault()}
-      onDrop={event => onDropOnCard(event, task.id)}
+      draggable={false}
+      onPointerDown={event => {
+        if (!editing && !menuOpen) onPointerDragStart(event, task);
+      }}
+      onClickCapture={onDragClickCapture}
+      onDoubleClickCapture={onDragClickCapture}
       onDoubleClick={event => {
         if (event.target.closest('button, textarea, input, a, dialog, [role="menu"]')) return;
         startEditing();

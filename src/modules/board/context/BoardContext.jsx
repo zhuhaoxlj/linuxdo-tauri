@@ -433,6 +433,7 @@ export function BoardProvider({ children }) {
   });
 
   const moveTask = (id, column, beforeId) => queueBoardEdit(async () => {
+    if (id === beforeId) return;
     const current = workspaceRef.current.tasks.find(task => task.id === id);
     if (!current) return;
     const now = Date.now();

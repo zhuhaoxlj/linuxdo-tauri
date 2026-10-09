@@ -146,6 +146,41 @@ body.kanban-resizing .kanban-cards { pointer-events: none; }
 }
 .kanban-card:hover { border-color: #d5e0f2; }
 .kanban-card:active { cursor: grabbing; }
+.kanban-card.is-dragging { opacity: .4; }
+.kanban-card { touch-action: none; }
+.kanban-card textarea { touch-action: auto; }
+body.kanban-pointer-dragging, body.kanban-pointer-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+.kanban-drag-preview {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  padding: 12px 14px;
+  border: 1px solid #a9bcdd;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(48, 58, 51, .18);
+  opacity: .9;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: hidden;
+}
+.kanban-card.drop-before::before,
+.kanban-card.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: #4974bb;
+  pointer-events: none;
+}
+.kanban-card.drop-before::before { top: -5px; }
+.kanban-card.drop-after::after { bottom: -5px; }
 .kanban-pin-badge {
   display: flex;
   align-items: center;

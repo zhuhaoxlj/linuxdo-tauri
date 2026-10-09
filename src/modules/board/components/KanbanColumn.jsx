@@ -15,14 +15,14 @@ export default function KanbanColumn({
   onAdd,
   onUpdate,
   onDelete,
-  onDragStart,
-  onDragEnd,
+  onPointerDragStart,
+  onDragClickCapture,
+  draggingId,
+  dropCard,
   scheduledByTask,
   onSchedule,
   onResize,
   onResizeCommit,
-  onDropOnColumn,
-  onDropOnCard,
   isDropTarget,
   moveTargets,
 }) {
@@ -61,9 +61,6 @@ export default function KanbanColumn({
       data-column-id={column.id}
       className={`kanban-column${collapsed ? ' collapsed' : ''}${isDropTarget ? ' drop-target' : ''}`}
       style={{ width: `${width}px` }}
-      onDragOver={event => { event.preventDefault(); onDropOnColumn.hover(column.id); }}
-      onDragLeave={() => onDropOnColumn.leave(column.id)}
-      onDrop={event => onDropOnColumn.drop(event, column.id)}
     >
       <header className="kanban-column-header">
         <span className="kanban-column-grip" aria-hidden="true"><GripVertical size={16} /></span>
@@ -90,11 +87,12 @@ export default function KanbanColumn({
                 task={card}
                 onUpdate={onUpdate}
                 onDelete={onDelete}
-                onDragStart={onDragStart}
-                onDragEnd={onDragEnd}
+                onPointerDragStart={onPointerDragStart}
+                onDragClickCapture={onDragClickCapture}
+                isDragging={draggingId === card.id}
+                dropPosition={dropCard?.id === card.id ? dropCard.position : null}
                 scheduledBlocks={scheduledByTask.get(taskRecordId(card)) || []}
                 onSchedule={onSchedule}
-                onDropOnCard={onDropOnCard}
                 moveTargets={moveTargets}
               />
             ))}

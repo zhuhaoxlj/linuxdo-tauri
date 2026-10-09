@@ -20,10 +20,11 @@ def main():
     parser.add_argument('--migration', action='store_true', help='Exercise the migrated forum pages against isolated fixtures')
     parser.add_argument('--clipboard', action='store_true', help='Test board paste using the current clipboard image without changing it')
     parser.add_argument('--board', action='store_true', help='Test card editing, pinning and clipboard copying with isolated board data')
+    parser.add_argument('--drag', action='store_true', help='Test real pointer dragging of board cards with isolated data')
     args = parser.parse_args()
     args.full = args.full or args.migration
-    if sum((args.clipboard, args.board, args.full)) > 1:
-        parser.error('Choose only one of --clipboard, --board, or --full/--migration')
+    if sum((args.clipboard, args.board, args.drag, args.full)) > 1:
+        parser.error('Choose only one of --clipboard, --board, --drag, or --full/--migration')
     binary = str(args.binary.resolve())
     directory = Path(tempfile.mkdtemp(prefix='linuxdo-native-test-'))
     (directory / 'config').mkdir()
@@ -86,8 +87,10 @@ def main():
         def async_script(source):
             return call('POST', f'/session/{session}/execute/async', {'script': source, 'args': []})
 
-        if args.clipboard or args.board:
-            if args.board:
+        if args.clipboard or args.board or args.drag:
+            if args.drag:
+                from native_card_drag import run
+            elif args.board:
                 from native_board import run
             else:
                 from native_clipboard import run

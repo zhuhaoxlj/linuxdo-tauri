@@ -15,6 +15,7 @@ const gridTime = (key, minute) => {
 };
 
 export default function DayTimeline({ date, setDate, tasks, categories, schedules, goals, draggingId, width,
+  pointerDrop, pointerOver, onPointerDropHandled,
   onAdd, onUpdate, onRemove, onStart, onFinish, onGoalChange, requestedTaskId, onRequestHandled, requestedBlockId, onBlockHandled }) {
   const [editor, setEditor] = useState(null);
   const [error, setError] = useState('');
@@ -105,15 +106,24 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
     if (await report(() => onGoalChange(date, minutes))) setGoalOpen(false);
   };
 
+  const addAtPointer = (taskId, clientY) => {
+    if (!tasks.some(task => task.id === taskId) || !gridRef.current) return;
+    const rect = gridRef.current.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+    const minutes = Math.min((axis.end - axis.start) / 60_000 - 15, Math.round(fraction * (axis.end - axis.start) / (15 * 60_000)) * 15);
+    void report(() => onAdd(taskId, axis.start + minutes * 60_000));
+  };
+
+  useEffect(() => {
+    if (!pointerDrop) return;
+    onPointerDropHandled();
+    addAtPointer(pointerDrop.taskId, pointerDrop.clientY);
+  }, [pointerDrop]);
+
   const drop = event => {
     event.preventDefault();
     setDragOver(false);
-    const taskId = draggingId || event.dataTransfer.getData('text/plain');
-    if (!tasks.some(task => task.id === taskId)) return;
-    const rect = gridRef.current.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height));
-    const minutes = Math.min((axis.end - axis.start) / 60_000 - 15, Math.round(fraction * (axis.end - axis.start) / (15 * 60_000)) * 15);
-    void report(() => onAdd(taskId, axis.start + minutes * 60_000));
+    addAtPointer(draggingId || event.dataTransfer.getData('text/plain'), event.clientY);
   };
 
   const startPointer = (event, block, edge) => {
@@ -172,7 +182,7 @@ export default function DayTimeline({ date, setDate, tasks, categories, schedule
       </details>}
       {error && <p className="day-timeline-error" role="alert">{error}</p>}
       <div className="day-timeline-scroll" ref={scrollRef}>
-        <div ref={gridRef} className={`day-timeline-grid${dragOver ? ' is-drop-target' : ''}`} style={{ height: axis.height }}
+        <div ref={gridRef} className={`day-timeline-grid${dragOver || pointerOver ? ' is-drop-target' : ''}`} style={{ height: axis.height }}
           onDragOver={event => { if (draggingId) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDragOver(true); } }}
           onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDragOver(false); }}
           onDrop={drop}>
