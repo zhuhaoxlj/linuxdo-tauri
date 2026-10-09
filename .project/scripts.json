@@ -1,0 +1,9 @@
+[
+  {
+    "id": "script-1791552306181-9e38f50f9d1538",
+    "name": "打包",
+    "path": "./scripts/build.sh",
+    "cwd": "",
+    "args": ""
+  }
+]
