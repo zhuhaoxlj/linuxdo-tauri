@@ -113,6 +113,17 @@ test('browser image paste is canceled synchronously and keeps using file compres
   assert.equal(revoke.mock.callCount(), 1);
 });
 
+test('a Linux file URI image paste reads the native image instead of inserting its path', async context => {
+  const { commands } = imageEnvironment(context);
+  const event = clipboardEvent({
+    types: ['text/plain', 'text/uri-list'],
+  });
+  const pending = imagesFromClipboardEvent(event);
+  assert.equal(event.defaultPrevented, true);
+  assert.deepEqual(await pending, ['data:image/jpeg;base64,test-image']);
+  assert.equal(commands[0].command, 'plugin:clipboard-manager|read_image');
+});
+
 test('ordinary text paste is untouched even when the card is full', async context => {
   const { commands } = imageEnvironment(context);
   const event = clipboardEvent({ types: ['text/plain', 'text/html'] });

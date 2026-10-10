@@ -77,8 +77,13 @@ async function nativeClipboardImage() {
 export async function imagesFromClipboardEvent(event, remaining = MAX_CARD_IMAGES) {
   const files = imageFilesFromClipboard(event);
   const data = event.clipboardData;
+  const types = Array.from(data?.types || []);
+  // Linux 微信复制图片时通常只暴露 text/uri-list 和文件路径文本，
+  // WebKit 不会把它转换成 File，放行默认粘贴就会把 file:// 地址写进卡片。
+  // 仅对明确的 URI 列表尝试原生图片读取，普通 text/plain 仍按文本处理。
+  const hasUriList = types.includes('text/uri-list');
   const readNative = data && isTauri()
-    && !Array.from(data.types || []).some(type => type.startsWith('text/'));
+    && (!types.some(type => type.startsWith('text/')) || hasUriList);
   if (!files.length && !readNative) return [];
   event.preventDefault();
   if (remaining <= 0) throw new Error(`每张卡片最多添加 ${MAX_CARD_IMAGES} 张图片`);
