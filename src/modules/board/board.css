@@ -207,6 +207,105 @@ body.kanban-pointer-dragging, body.kanban-pointer-dragging * {
   cursor: pointer;
 }
 .kanban-card-link:hover { color: #345e9f; }
+
+/* 子任务：每条主任务卡片下的待办清单 */
+.kanban-subtasks { margin-top: 9px; padding-top: 8px; border-top: 1px dashed #e8eef7; }
+.kanban-board .kanban-subtasks-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 2px 0;
+  border-radius: 5px;
+  color: #718097;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: left;
+}
+.kanban-board .kanban-subtasks-toggle:hover { color: #345e9f; }
+.kanban-subtasks-toggle svg:first-child { transition: transform .15s ease; }
+.kanban-subtasks.is-collapsed .kanban-subtasks-toggle svg:first-child { transform: rotate(-90deg); }
+.kanban-subtasks-toggle b { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; color: #5f7189; }
+.kanban-subtask-list { display: flex; flex-direction: column; gap: 1px; margin: 3px 0 0; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
+.kanban-subtask { display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 1px 2px 1px 0; border-radius: 5px; }
+.kanban-subtask:hover { background: #f6f9fe; }
+.kanban-board .kanban-subtask-check {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid #b7c6db;
+  border-radius: 4px;
+  background: #fff;
+  color: #fff;
+  cursor: pointer;
+}
+.kanban-board .kanban-subtask-check:hover { border-color: #4974bb; }
+.kanban-subtask.is-done .kanban-subtask-check { border-color: #4974bb; background: #4974bb; }
+.kanban-board .kanban-subtask-title {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 0;
+  color: #35485f;
+  font-size: 12px;
+  line-height: 1.45;
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  cursor: text;
+}
+.kanban-subtask.is-done .kanban-subtask-title { color: #97a5b8; text-decoration: line-through; }
+.kanban-subtask-editor {
+  flex: 1;
+  min-width: 0;
+  padding: 1px 5px;
+  font-size: 12px;
+  line-height: 1.45;
+  border-radius: 5px;
+}
+.kanban-board .kanban-subtask-remove {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  color: #9aaac0;
+  opacity: 0;
+}
+.kanban-subtask:hover .kanban-subtask-remove,
+.kanban-board .kanban-subtask-remove:focus-visible { opacity: 1; }
+.kanban-board .kanban-subtask-remove:hover { background: #fdecec; color: #bd4f54; }
+.kanban-subtask-add {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  color: #9aaac0;
+}
+.kanban-subtask-add:focus-within { color: #4974bb; }
+.kanban-board .kanban-subtask-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #35485f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.kanban-board .kanban-subtask-add input::placeholder { color: #a6b3c4; }
+.kanban-board .kanban-subtask-add input:hover { background: #f7fafe; }
+.kanban-board .kanban-subtask-add input:focus {
+  outline: none;
+  border-color: #cfdcee;
+  background: #fff;
+}
+@media (hover: none) {
+  .kanban-board .kanban-subtask-remove { opacity: 1; }
+}
 .kanban-card-menu { position: absolute; top: 6px; right: 6px; }
 .kanban-card-editor {
   width: 100%;

@@ -32,6 +32,9 @@ export function taskToRecord(task, overrides = {}) {
     sourceUrl: '',
     tags: Array.isArray(task.tags) ? task.tags : [],
     pinned: Boolean(task.pinned),
+    subtasks: Array.isArray(task.subtasks)
+      ? task.subtasks.map(item => ({ id: item.id, title: item.title || '', done: Boolean(item.done), createdAt: item.createdAt || null, doneAt: item.doneAt ?? null }))
+      : [],
     boardColumn: ['inbox', 'todo', 'doing', 'done'].includes(task.column) ? task.column : task.completed ? 'done' : 'inbox',
     completedAt: task.completedAt ?? null,
     category: CATEGORY_NAMES[task.category] || task.category || '首页',
@@ -139,6 +142,15 @@ export function recordToTask(record, images = []) {
     description: record.body || '',
     tags: record.tags || [],
     pinned: Boolean(record.pinned),
+    subtasks: Array.isArray(record.subtasks)
+      ? record.subtasks.map((item, index) => ({
+        id: typeof item?.id === 'string' && item.id ? item.id : `subtask-${index}`,
+        title: typeof item?.title === 'string' ? item.title : '',
+        done: Boolean(item?.done),
+        createdAt: item?.createdAt || null,
+        doneAt: item?.doneAt ?? null,
+      }))
+      : [],
     column: record.boardColumn || 'inbox',
     completed: record.boardColumn === 'done',
     completedAt: Number.isFinite(record.completedAt) ? record.completedAt : null,

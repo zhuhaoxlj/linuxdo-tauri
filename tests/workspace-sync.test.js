@@ -232,3 +232,20 @@ test('pairing envelope transfers vault credentials to the generated device key',
   const sealed = await sealPairingEnvelope(receiver.publicKey, credentials);
   assert.deepEqual(await openPairingEnvelope(receiver.privateKey, sealed), credentials);
 });
+
+test('card subtasks survive the encrypted record round trip', () => {
+  const card = taskToRecord({
+    id: '77', title: '上线', category: 'work', column: 'doing', createdAt: '2026-09-15T00:00:00Z',
+    subtasks: [
+      { id: 's1', title: '写需求', done: true, createdAt: '2026-09-15T00:00:00Z', doneAt: '2026-09-15T01:00:00Z' },
+      { id: 's2', title: '画原型', done: false, createdAt: '2026-09-15T00:00:00Z', doneAt: null },
+    ],
+  });
+  assert.deepEqual(card.subtasks.map(item => [item.id, item.title, item.done]), [['s1', '写需求', true], ['s2', '画原型', false]]);
+  const restored = recordToTask(card);
+  assert.deepEqual(restored.subtasks, card.subtasks);
+  // 其他设备还没升级时，缺失字段要降级为空清单而不是报错
+  assert.deepEqual(recordToTask({ ...card, subtasks: undefined }).subtasks, []);
+  assert.deepEqual(recordToTask({ ...card, subtasks: [{ title: '旧格式' }] }).subtasks[0].id.length > 0, true);
+  assert.deepEqual(taskToRecord({ id: '78', title: '无子任务' }).subtasks, []);
+});

@@ -1,12 +1,19 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarPlus, ChevronLeft, ChevronRight, Clock3, Copy, FolderInput, MoreHorizontal, Pencil, Pin, PinOff, Trash2, X } from 'lucide-react';
+import { CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FolderInput, ListTodo, MoreHorizontal, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 import { copyCardContent } from '../lib/clipboardContent';
 import { linkSegments, openLinkFromEvent } from '../lib/links';
+import { addSubtask, deleteSubtask, editSubtask, normalizeSubtasks, toggleSubtask } from '../lib/tasks';
 import ImageThumbnail from './ImageThumbnail';
 
 const copyMessages = { copying: '正在复制…', copied: '已复制到剪贴板', failed: '复制失败，请重试' };
+const SUBTASKS_COLLAPSED_KEY = 'fluxdo:card-subtasks-collapsed';
+
+function initialSubtasksOpen() {
+  try { return localStorage.getItem(SUBTASKS_COLLAPSED_KEY) !== '1'; }
+  catch { return true; }
+}
 
 export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStart, onDragClickCapture, isDragging, dropPosition, scheduledBlocks = [], onSchedule, moveTargets = [] }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -16,11 +23,18 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
   const [copyStatus, setCopyStatus] = useState('');
   const [title, setTitle] = useState(task.title);
   const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  const [subtasksOpen, setSubtasksOpen] = useState(initialSubtasksOpen);
+  const [subtaskInput, setSubtaskInput] = useState('');
+  const [subtaskDraft, setSubtaskDraft] = useState('');
+  const [editingSubtaskId, setEditingSubtaskId] = useState(null);
   const buttonRef = useRef(null);
   const menuRef = useRef(null);
   const cardRef = useRef(null);
   const editorRef = useRef(null);
+  const subtaskInputRef = useRef(null);
   const images = task.images || [];
+  const subtasks = useMemo(() => normalizeSubtasks(task.subtasks), [task.subtasks]);
+  const doneSubtasks = subtasks.filter(item => item.done).length;
   const titleSegments = useMemo(() => linkSegments(task.title), [task.title]);
 
   useEffect(() => {
@@ -100,14 +114,53 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
     setEditing(true);
   };
 
+  const toggleSubtasksOpen = () => {
+    setSubtasksOpen(open => {
+      try { localStorage.setItem(SUBTASKS_COLLAPSED_KEY, open ? '1' : '0'); }
+      catch { /* 存储不可用时仅关闭本次展开状态 */ }
+      return !open;
+    });
+  };
+
+  const openSubtaskInput = () => {
+    setEditing(false);
+    setSubtasksOpen(true);
+    setSubtaskInput('');
+    requestAnimationFrame(() => subtaskInputRef.current?.focus());
+  };
+
+  // 允许多行粘贴：每行生成一条子任务
+  const commitSubtaskInput = value => {
+    const lines = String(value ?? '').split('\n').map(line => line.trim()).filter(Boolean);
+    if (!lines.length) return;
+    let next = normalizeSubtasks(task.subtasks);
+    for (const line of lines) next = addSubtask(next, line) || next;
+    onUpdate(task.id, { subtasks: next });
+  };
+
+  const submitSubtasks = () => {
+    commitSubtaskInput(subtaskInput);
+    setSubtaskInput('');
+    requestAnimationFrame(() => subtaskInputRef.current?.focus());
+  };
+
+  const saveSubtaskTitle = id => {
+    const next = editSubtask(task.subtasks, id, { title: subtaskDraft });
+    setEditingSubtaskId(null);
+    setSubtaskDraft('');
+    onUpdate(task.id, { subtasks: next });
+  };
+
   const copyContent = async () => {
     if (copyStatus === 'copying') return;
     const currentTitle = editing ? title.trim() : task.title;
     if (editing) save();
     setMenuOpen(false);
     setCopyStatus('copying');
+    const checklist = subtasks.map(item => `${item.done ? '[x]' : '[ ]'} ${item.title}`).join('\n');
+    const text = checklist ? `${currentTitle}\n${checklist}` : currentTitle;
     try {
-      await copyCardContent({ title: currentTitle, images });
+      await copyCardContent({ title: text, images });
       setCopyStatus('copied');
     } catch {
       setCopyStatus('failed');
@@ -222,6 +275,101 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
         </div>
       )}
 
+      {subtasks.length > 0 && (
+        <div className={`kanban-subtasks${subtasksOpen ? '' : ' is-collapsed'}`}>
+          <button
+            type="button"
+            className="kanban-subtasks-toggle"
+            aria-expanded={subtasksOpen}
+            title={subtasksOpen ? '折叠子任务' : '展开子任务'}
+            onPointerDown={event => event.stopPropagation()}
+            onClick={toggleSubtasksOpen}
+          >
+            <ChevronDown size={13} />
+            <ListTodo size={13} />
+            <span>子任务</span>
+            <b>{doneSubtasks}/{subtasks.length}</b>
+          </button>
+          {subtasksOpen && (
+            <ul className="kanban-subtask-list">
+              {subtasks.map(item => (
+                <li key={item.id} className={`kanban-subtask${item.done ? ' is-done' : ''}`}>
+                  <button
+                    type="button"
+                    className="kanban-subtask-check"
+                    role="checkbox"
+                    aria-checked={item.done}
+                    aria-label={item.done ? '标记为未完成' : '标记为已完成'}
+                    onPointerDown={event => event.stopPropagation()}
+                    onClick={() => onUpdate(task.id, { subtasks: toggleSubtask(task.subtasks, item.id) })}
+                  >
+                    {item.done ? <Check size={11} /> : null}
+                  </button>
+                  {editingSubtaskId === item.id ? (
+                    <input
+                      className="kanban-subtask-editor"
+                      value={subtaskDraft}
+                      autoFocus
+                      aria-label="子任务标题"
+                      onChange={event => setSubtaskDraft(event.target.value)}
+                      onPointerDown={event => event.stopPropagation()}
+                      onBlur={() => saveSubtaskTitle(item.id)}
+                      onKeyDown={event => {
+                        if (event.key === 'Enter') { event.preventDefault(); saveSubtaskTitle(item.id); }
+                        if (event.key === 'Escape') { setEditingSubtaskId(null); setSubtaskDraft(''); }
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="kanban-subtask-title"
+                      title="点击编辑子任务"
+                      onPointerDown={event => event.stopPropagation()}
+                      onClick={() => { setEditingSubtaskId(item.id); setSubtaskDraft(item.title); }}
+                    >
+                      {item.title}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="kanban-subtask-remove"
+                    aria-label="删除子任务"
+                    onPointerDown={event => event.stopPropagation()}
+                    onClick={() => onUpdate(task.id, { subtasks: deleteSubtask(task.subtasks, item.id) })}
+                  >
+                    <X size={11} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      <div className="kanban-subtask-add">
+        <Plus size={12} />
+        <input
+          ref={subtaskInputRef}
+          value={subtaskInput}
+          aria-label="新增子任务"
+          placeholder="添加子任务，回车保存"
+          onPointerDown={event => event.stopPropagation()}
+          onChange={event => setSubtaskInput(event.target.value)}
+          onPaste={event => {
+            // 多行粘贴一次建多条子任务
+            const text = event.clipboardData?.getData('text/plain') || '';
+            if (!text.includes('\n')) return;
+            event.preventDefault();
+            commitSubtaskInput(text);
+            setSubtaskInput('');
+          }}
+          onKeyDown={event => {
+            if (event.key === 'Enter') { event.preventDefault(); submitSubtasks(); }
+            if (event.key === 'Escape') { setSubtaskInput(''); event.currentTarget.blur(); }
+          }}
+        />
+      </div>
+
       {pasteError && <p className="kanban-paste-error" role="alert">{pasteError}</p>}
       {copyStatus && (
         <p className={`kanban-copy-status${copyStatus === 'failed' ? ' is-error' : ''}`} role={copyStatus === 'failed' ? 'alert' : 'status'}>
@@ -273,6 +421,9 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
               <>
                 <button type="button" role="menuitem" onClick={startEditing}>
                   <Pencil size={14} />编辑
+                </button>
+                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); openSubtaskInput(); }}>
+                  <Plus size={14} />添加子任务
                 </button>
                 {task.column !== 'done' && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onSchedule(task.id); }}><CalendarPlus size={14} />安排时间</button>}
                 <button type="button" role="menuitem" onClick={() => {
