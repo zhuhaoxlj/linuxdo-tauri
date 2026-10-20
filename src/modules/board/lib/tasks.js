@@ -51,6 +51,27 @@ export function deleteSubtask(subtasks, id) {
   return normalizeSubtasks(subtasks).filter(item => item.id !== id);
 }
 
+// 拖动排序：把 fromId 插到 toId 之前 / 之后。
+export function reorderSubtask(subtasks, fromId, toId, position = 'before') {
+  const list = normalizeSubtasks(subtasks);
+  if (fromId === toId) return list;
+  const from = list.findIndex(item => item.id === fromId);
+  if (from < 0 || !list.some(item => item.id === toId)) return list;
+  const [moved] = list.splice(from, 1);
+  const anchor = list.findIndex(item => item.id === toId);
+  list.splice(position === 'after' ? anchor + 1 : anchor, 0, moved);
+  return list;
+}
+
+// 键盘微调：offset 为 -1 上移、1 下移。
+export function shiftSubtask(subtasks, id, offset) {
+  const list = normalizeSubtasks(subtasks);
+  const index = list.findIndex(item => item.id === id);
+  const target = list[index + offset];
+  if (index < 0 || !target) return list;
+  return reorderSubtask(list, id, target.id, offset < 0 ? 'before' : 'after');
+}
+
 function nextSubtaskId() {
   const random = globalThis.crypto?.randomUUID?.();
   return random || `subtask-${Date.now()}-${Math.random().toString(16).slice(2)}`;

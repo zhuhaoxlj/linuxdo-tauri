@@ -1,10 +1,10 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FolderInput, ListTodo, MoreHorizontal, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
+import { CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Copy, FolderInput, GripVertical, ListTodo, MoreHorizontal, Pencil, Pin, PinOff, Plus, Trash2, X } from 'lucide-react';
 import { MAX_CARD_IMAGES, imagesFromClipboardEvent } from '../lib/clipboardImage';
 import { copyCardContent } from '../lib/clipboardContent';
 import { linkSegments, openLinkFromEvent } from '../lib/links';
-import { addSubtask, deleteSubtask, editSubtask, normalizeSubtasks, toggleSubtask } from '../lib/tasks';
+import { addSubtask, deleteSubtask, editSubtask, normalizeSubtasks, reorderSubtask, shiftSubtask, toggleSubtask } from '../lib/tasks';
 import ImageThumbnail from './ImageThumbnail';
 
 const copyMessages = { copying: '正在复制…', copied: '已复制到剪贴板', failed: '复制失败，请重试' };
@@ -32,8 +32,23 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
   const cardRef = useRef(null);
   const editorRef = useRef(null);
   const subtaskInputRef = useRef(null);
+  const subtaskListRef = useRef(null);
+  const subtaskDragRef = useRef(null);
+  const subtaskOrderRef = useRef(null);
+  const subtaskSuppressClick = useRef(0);
+  const [subtaskDrag, setSubtaskDrag] = useState(null);
   const images = task.images || [];
   const subtasks = useMemo(() => normalizeSubtasks(task.subtasks), [task.subtasks]);
+  // 拖动过程中按本地预览顺序渲染，松手后才写回数据。
+  const displayedSubtasks = useMemo(() => {
+    const order = subtaskDrag?.order;
+    if (!order) return subtasks;
+    const byId = new Map(subtasks.map(item => [item.id, item]));
+    const ordered = order.map(id => byId.get(id)).filter(Boolean);
+    if (ordered.length !== subtasks.length) return subtasks;
+    return ordered;
+  }, [subtasks, subtaskDrag]);
+  const draggingSubtaskId = subtaskDrag?.id || null;
   const doneSubtasks = subtasks.filter(item => item.done).length;
   const titleSegments = useMemo(() => linkSegments(task.title), [task.title]);
 
@@ -151,6 +166,101 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
     onUpdate(task.id, { subtasks: next });
   };
 
+  // 子任务拖动排序：指针移动超过阈值才进入拖动态，避免影响点击编辑。
+  const startSubtaskDrag = (event, id) => {
+    if (event.button !== 0 || event.isPrimary === false || editingSubtaskId === id) return;
+    const origin = { x: event.clientX, y: event.clientY };
+    const pointerId = event.pointerId;
+    let active = false;
+    let ended = false;
+
+    const orderAt = clientY => {
+      const listNode = subtaskListRef.current;
+      if (!listNode) return null;
+      const nodes = Array.from(listNode.querySelectorAll('[data-subtask-id]'))
+        .filter(node => node.dataset.subtaskId !== id);
+      let index = nodes.length;
+      for (let item = 0; item < nodes.length; item += 1) {
+        const rect = nodes[item].getBoundingClientRect();
+        if (clientY < rect.top + rect.height / 2) { index = item; break; }
+      }
+      const order = nodes.map(node => node.dataset.subtaskId);
+      order.splice(index, 0, id);
+      return order;
+    };
+
+    const preview = clientY => {
+      const listNode = subtaskListRef.current;
+      if (listNode && listNode.scrollHeight > listNode.clientHeight) {
+        const rect = listNode.getBoundingClientRect();
+        if (clientY < rect.top + 18) listNode.scrollTop -= 8;
+        else if (clientY > rect.bottom - 18) listNode.scrollTop += 8;
+      }
+      const next = orderAt(clientY);
+      if (!next) return;
+      const current = subtaskOrderRef.current;
+      if (current && current.join('\u0000') === next.join('\u0000')) return;
+      subtaskOrderRef.current = next;
+      setSubtaskDrag({ id, order: next });
+    };
+
+    const finish = (canceled = false) => {
+      if (ended) return;
+      ended = true;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('blur', cancel);
+      document.body.classList.remove('subtask-pointer-dragging');
+      subtaskDragRef.current = null;
+      const finalOrder = canceled ? null : subtaskOrderRef.current;
+      subtaskOrderRef.current = null;
+      setSubtaskDrag(null);
+      if (!active) return;
+      subtaskSuppressClick.current = Date.now() + 300;
+      if (!finalOrder) return;
+      const original = normalizeSubtasks(task.subtasks);
+      if (finalOrder.join('\u0000') === original.map(item => item.id).join('\u0000')) return;
+      const byId = new Map(original.map(item => [item.id, item]));
+      const next = finalOrder.map(itemId => byId.get(itemId)).filter(Boolean);
+      if (next.length === original.length) onUpdate(task.id, { subtasks: next });
+    };
+
+    const move = current => {
+      if (current.pointerId !== pointerId) return;
+      if (!active && Math.hypot(current.clientX - origin.x, current.clientY - origin.y) < 5) return;
+      current.preventDefault();
+      if (!active) {
+        active = true;
+        document.body.classList.add('subtask-pointer-dragging');
+        window.getSelection()?.removeAllRanges();
+      }
+      preview(current.clientY);
+    };
+    const up = current => {
+      if (current.pointerId !== pointerId) return;
+      finish();
+    };
+    const cancel = () => finish(true);
+    const key = current => {
+      if (current.key === 'Escape' && active) { current.preventDefault(); finish(true); }
+    };
+    window.addEventListener('pointermove', move, { passive: false });
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('keydown', key);
+    window.addEventListener('blur', cancel);
+    subtaskDragRef.current = () => finish(true);
+  };
+
+  useEffect(() => () => subtaskDragRef.current?.(), []);
+
+  const nudgeSubtask = (id, offset) => {
+    const next = shiftSubtask(task.subtasks, id, offset);
+    onUpdate(task.id, { subtasks: next });
+  };
+
   const copyContent = async () => {
     if (copyStatus === 'copying') return;
     const currentTitle = editing ? title.trim() : task.title;
@@ -197,7 +307,7 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
       onClickCapture={onDragClickCapture}
       onDoubleClickCapture={onDragClickCapture}
       onDoubleClick={event => {
-        if (event.target.closest('button, textarea, input, a, dialog, [role="menu"]')) return;
+        if (event.target.closest('button, textarea, input, a, dialog, [role="menu"], .kanban-subtask')) return;
         startEditing();
       }}
     >
@@ -291,9 +401,30 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
             <b>{doneSubtasks}/{subtasks.length}</b>
           </button>
           {subtasksOpen && (
-            <ul className="kanban-subtask-list">
-              {subtasks.map(item => (
-                <li key={item.id} className={`kanban-subtask${item.done ? ' is-done' : ''}`}>
+            <ul
+              className="kanban-subtask-list"
+              ref={subtaskListRef}
+              onClickCapture={event => {
+                // 拖动结束后紧跟的 click 不应误触勾选 / 编辑 / 删除
+                if (Date.now() >= subtaskSuppressClick.current) return;
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+            >
+              {displayedSubtasks.map(item => (
+                <li
+                  key={item.id}
+                  data-subtask-id={item.id}
+                  className={`kanban-subtask${item.done ? ' is-done' : ''}${draggingSubtaskId === item.id ? ' is-dragging' : ''}`}
+                >
+                  <span
+                    className="kanban-subtask-grip"
+                    aria-hidden="true"
+                    title="拖动排序（标题上 Alt+↑/↓ 微调）"
+                    onPointerDown={event => { event.stopPropagation(); startSubtaskDrag(event, item.id); }}
+                  >
+                    <GripVertical size={11} />
+                  </span>
                   <button
                     type="button"
                     className="kanban-subtask-check"
@@ -323,9 +454,14 @@ export default function KanbanCard({ task, onUpdate, onDelete, onPointerDragStar
                     <button
                       type="button"
                       className="kanban-subtask-title"
-                      title="点击编辑子任务"
+                      title="点击编辑子任务（Alt+↑/↓ 调整顺序）"
                       onPointerDown={event => event.stopPropagation()}
                       onClick={() => { setEditingSubtaskId(item.id); setSubtaskDraft(item.title); }}
+                      onKeyDown={event => {
+                        if (!event.altKey) return;
+                        if (event.key === 'ArrowUp') { event.preventDefault(); nudgeSubtask(item.id, -1); }
+                        if (event.key === 'ArrowDown') { event.preventDefault(); nudgeSubtask(item.id, 1); }
+                      }}
                     >
                       {item.title}
                     </button>

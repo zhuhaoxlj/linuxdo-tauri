@@ -229,6 +229,29 @@ body.kanban-pointer-dragging, body.kanban-pointer-dragging * {
 .kanban-subtask-list { display: flex; flex-direction: column; gap: 1px; margin: 3px 0 0; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; overscroll-behavior: contain; }
 .kanban-subtask { display: flex; align-items: center; gap: 6px; min-height: 24px; padding: 1px 2px 1px 0; border-radius: 5px; }
 .kanban-subtask:hover { background: #f6f9fe; }
+.kanban-subtask-grip {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 11px;
+  height: 16px;
+  margin-left: -1px;
+  color: #cbd6e4;
+  cursor: grab;
+  touch-action: none;
+  transition: color .12s ease;
+}
+.kanban-subtask:hover .kanban-subtask-grip { color: #94a9c2; }
+.kanban-subtask.is-dragging {
+  position: relative;
+  z-index: 1;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(35, 66, 110, .18), 0 0 0 1px #cfdcee;
+}
+.kanban-subtask.is-dragging .kanban-subtask-grip { color: #4974bb; cursor: grabbing; }
+.kanban-subtask.is-dragging .kanban-subtask-title { cursor: grabbing; }
+body.subtask-pointer-dragging { cursor: grabbing; user-select: none; }
+body.subtask-pointer-dragging .kanban-subtask { transition: none; }
 .kanban-board .kanban-subtask-check {
   flex: 0 0 auto;
   display: inline-grid;
