@@ -9,6 +9,7 @@ import { sortPinnedTasks } from '../lib/tasks';
 import { cardDropPosition, cardDropTarget } from '../lib/cardDrop';
 import { useCardPointerDrag } from '../lib/useCardPointerDrag';
 import { useColumnWidths } from '../lib/useColumnWidths';
+import { COLUMN_COLLAPSED_KEY, isColumnCollapsed, parseColumnCollapsed, toggleColumnCollapsed } from '../lib/columnCollapse';
 import { DEFAULT_COLUMN_WIDTH } from '../lib/columnWidths';
 import { taskRecordId } from '../../sync/workspace';
 import { dayKey } from '../lib/schedule';
@@ -26,6 +27,11 @@ function initialView() {
 function initialWidth() {
   try { return Math.max(280, Math.min(480, Number(localStorage.getItem(TIMELINE_WIDTH_KEY)) || 360)); }
   catch { return 360; }
+}
+
+function initialCollapsed() {
+  try { return parseColumnCollapsed(localStorage.getItem(COLUMN_COLLAPSED_KEY), KANBAN_COLUMNS); }
+  catch { return {}; }
 }
 
 export default function BoardPage() {
@@ -49,7 +55,7 @@ export default function BoardPage() {
     finishSchedule,
     categories,
   } = useBoard();
-  const [collapsed, setCollapsed] = useState({});
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
   const { widths, resize, commit } = useColumnWidths();
   const [draggingId, setDraggingId] = useState(null);
   const [dropColumn, setDropColumn] = useState(null);
@@ -139,6 +145,15 @@ export default function BoardPage() {
     catch (error) { setBoardError(error.message || '无法保存显示模式'); }
   };
 
+  const toggleColumn = columnId => {
+    setCollapsed(current => {
+      const next = toggleColumnCollapsed(current, columnId);
+      try { writeSharedValue(COLUMN_COLLAPSED_KEY, JSON.stringify(next)); }
+      catch (error) { setBoardError(error.message || '无法保存列折叠状态'); }
+      return next;
+    });
+  };
+
   const resizeTimeline = event => {
     event.preventDefault();
     const startX = event.clientX;
@@ -181,10 +196,10 @@ export default function BoardPage() {
             column={column}
             cards={filteredTasks.filter(task => task.column === column.id)}
             width={widths[column.id] || DEFAULT_COLUMN_WIDTH}
-            collapsed={Boolean(collapsed[column.id])}
+            collapsed={isColumnCollapsed(collapsed, column.id)}
             onResize={next => resize(column.id, next)}
             onResizeCommit={commit}
-            onToggleCollapsed={() => setCollapsed(current => ({ ...current, [column.id]: !current[column.id] }))}
+            onToggleCollapsed={() => toggleColumn(column.id)}
             onAdd={({ title, images }) => addTask({ title, images, category: activeCategory, column: column.id })}
             onUpdate={updateTask}
             onDelete={deleteTask}

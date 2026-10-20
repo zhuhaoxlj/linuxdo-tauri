@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { isColumnCollapsed, parseColumnCollapsed, toggleColumnCollapsed } from '../src/modules/board/lib/columnCollapse.js';
 import {
   DEFAULT_COLUMN_WIDTH,
   MAX_COLUMN_WIDTH,
@@ -32,4 +33,20 @@ test('widths for removed columns are dropped when the column list is known', () 
   const columns = [{ id: 'inbox' }, { id: 'todo' }];
   const widths = parseColumnWidths({ inbox: 300, legacy: 300, todo: DEFAULT_COLUMN_WIDTH }, columns);
   assert.deepEqual(widths, { inbox: 300, todo: DEFAULT_COLUMN_WIDTH });
+});
+
+test('done column starts collapsed while other columns stay open', () => {
+  assert.equal(isColumnCollapsed({}, 'done'), true);
+  assert.equal(isColumnCollapsed({}, 'doing'), false);
+  assert.equal(isColumnCollapsed(parseColumnCollapsed('{"done":false}'), 'done'), false);
+  assert.equal(isColumnCollapsed(parseColumnCollapsed('{"doing":true}'), 'doing'), true);
+});
+
+test('collapsed state only stores explicit toggles and survives bad data', () => {
+  const first = toggleColumnCollapsed({}, 'done');
+  assert.deepEqual(first, { done: false });
+  assert.deepEqual(toggleColumnCollapsed(first, 'done'), { done: true });
+  assert.deepEqual(toggleColumnCollapsed({}, 'todo'), { todo: true });
+  assert.deepEqual(parseColumnCollapsed('not json'), {});
+  assert.deepEqual(parseColumnCollapsed({ done: 'yes', doing: true, gone: true }, [{ id: 'doing' }]), { doing: true });
 });
